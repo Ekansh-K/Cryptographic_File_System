@@ -1,0 +1,406 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS Variables for Theme Colors */
+:root {
+  /* Light Theme Colors */
+  --color-primary: 59 130 246; /* blue-500 */
+  --color-primary-dark: 37 99 235; /* blue-600 */
+  --color-secondary: 99 102 241; /* indigo-500 */
+  --color-accent: 14 165 233; /* sky-500 */
+  
+  /* Light Theme Backgrounds */
+  --bg-primary: 248 250 252; /* slate-50 */
+  --bg-secondary: 241 245 249; /* slate-100 */
+  --bg-tertiary: 255 255 255; /* white */
+  
+  /* Light Theme Glass Effects */
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.3);
+  --glass-shadow: rgba(0, 0, 0, 0.1);
+  --glass-backdrop: blur(24px) saturate(180%);
+  
+  /* Light Theme Text */
+  --text-primary: 15 23 42; /* slate-900 */
+  --text-secondary: 71 85 105; /* slate-600 */
+  --text-muted: 148 163 184; /* slate-400 */
+}
+
+[data-theme="dark"] {
+  /* Dark Theme Colors */
+  --color-primary: 96 165 250; /* blue-400 */
+  --color-primary-dark: 59 130 246; /* blue-500 */
+  --color-secondary: 129 140 248; /* indigo-400 */
+  --color-accent: 56 189 248; /* sky-400 */
+  
+  /* Dark Theme Backgrounds */
+  --bg-primary: 2 6 23; /* slate-950 */
+  --bg-secondary: 15 23 42; /* slate-900 */
+  --bg-tertiary: 30 41 59; /* slate-800 */
+  
+  /* Dark Theme Glass Effects */
+  --glass-bg: rgba(15, 23, 42, 0.85);
+  --glass-border: rgba(148, 163, 184, 0.2);
+  --glass-shadow: rgba(0, 0, 0, 0.5);
+  --glass-backdrop: blur(24px) saturate(180%);
+  
+  /* Dark Theme Text */
+  --text-primary: 248 250 252; /* slate-50 */
+  --text-secondary: 203 213 225; /* slate-300 */
+  --text-muted: 148 163 184; /* slate-400 */
+}
+
+/* Enhanced Glass Morphism Effects */
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  box-shadow: 
+    0 8px 32px var(--glass-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+}
+
+.glass-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    0 12px 40px var(--glass-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  border-color: rgba(rgb(var(--color-primary)), 0.2);
+}
+
+.glass-button {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-button:hover {
+  background: rgba(rgb(var(--color-primary)), 0.1);
+  border-color: rgba(rgb(var(--color-primary)), 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(rgb(var(--color-primary)), 0.2);
+}
+
+.glass-input {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+.glass-input:focus {
+  border-color: rgba(rgb(var(--color-primary)), 0.5);
+  box-shadow: 0 0 0 3px rgba(rgb(var(--color-primary)), 0.1);
+}
+
+/* Enhanced Background Gradients */
+.auth-bg-light {
+  background: 
+    radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.3) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.3) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(120, 219, 255, 0.3) 0%, transparent 50%),
+    linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+}
+
+.auth-bg-dark {
+  background: 
+    radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(14, 165, 233, 0.15) 0%, transparent 50%),
+    linear-gradient(135deg, #020617 0%, #0f172a 50%, #1e293b 100%);
+}
+
+/* Custom styles */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: rgb(var(--bg-primary));
+  color: rgb(var(--text-primary));
+  min-height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Theme Toggle Button */
+.theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  border: 1px solid var(--glass-border);
+  border-radius: 50px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 20px var(--glass-shadow);
+}
+
+.theme-toggle:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px var(--glass-shadow);
+}
+
+.gradient-bg {
+  background: linear-gradient(135deg, rgb(var(--color-primary)) 0%, rgb(var(--color-accent)) 100%);
+  box-shadow: 0 10px 25px rgba(rgb(var(--color-primary)), 0.3);
+}
+
+.glass-effect {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 32px var(--glass-shadow);
+}
+
+/* Ant Design customizations */
+.ant-layout {
+  background: transparent !important;
+}
+
+.ant-layout-content {
+  background: transparent !important;
+}
+
+.ant-layout-sider {
+  background: rgba(255, 255, 255, 0.95) !important;
+  backdrop-filter: blur(20px);
+  box-shadow: 2px 0 20px rgba(0, 0, 0, 0.1);
+}
+
+.dark .ant-layout-sider {
+  background: rgba(15, 23, 42, 0.95) !important;
+  box-shadow: 2px 0 20px rgba(0, 0, 0, 0.3);
+}
+
+.ant-layout-header {
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(229, 231, 235, 0.5);
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.05);
+}
+
+.dark .ant-layout-header {
+  background: rgba(15, 23, 42, 0.9) !important;
+  border-bottom: 1px solid rgba(75, 85, 99, 0.3);
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.2);
+}
+
+.ant-menu {
+  background: transparent !important;
+  border: none !important;
+}
+
+.ant-menu-item {
+  border-radius: 8px !important;
+  margin: 4px 0 !important;
+  transition: all 0.3s ease !important;
+}
+
+.ant-menu-item:hover {
+  background-color: rgba(14, 165, 233, 0.1) !important;
+  transform: translateX(4px);
+}
+
+.ant-menu-item-selected {
+  background-color: rgba(14, 165, 233, 0.15) !important;
+  color: #0ea5e9 !important;
+  font-weight: 600;
+}
+
+.ant-menu-item-selected::after {
+  border-right: 3px solid #0ea5e9 !important;
+}
+
+/* Card enhancements */
+.ant-card {
+  border-radius: 12px !important;
+  border: 1px solid rgba(229, 231, 235, 0.3) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
+  backdrop-filter: blur(10px);
+  transition: all 0.3s ease !important;
+}
+
+.ant-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12) !important;
+}
+
+.dark .ant-card {
+  background: rgba(30, 41, 59, 0.8) !important;
+  border: 1px solid rgba(75, 85, 99, 0.3) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2) !important;
+}
+
+.dark .ant-card:hover {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Button enhancements */
+.ant-btn {
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  transition: all 0.3s ease !important;
+}
+
+.ant-btn:hover {
+  transform: translateY(-1px);
+}
+
+.ant-btn-primary {
+  background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%) !important;
+  border: none !important;
+  box-shadow: 0 4px 15px rgba(14, 165, 233, 0.3) !important;
+}
+
+.ant-btn-primary:hover {
+  box-shadow: 0 6px 20px rgba(14, 165, 233, 0.4) !important;
+}
+
+/* Progress bar enhancements */
+.ant-progress-bg {
+  background: linear-gradient(90deg, #0ea5e9 0%, #06b6d4 100%) !important;
+}
+
+/* Statistic enhancements */
+.ant-statistic-content {
+  font-weight: 600 !important;
+}
+
+.ant-statistic-title {
+  font-weight: 500 !important;
+  color: rgba(107, 114, 128, 1) !important;
+}
+
+.dark .ant-statistic-title {
+  color: rgba(156, 163, 175, 1) !important;
+}
+
+/* Alert enhancements */
+.ant-alert {
+  border-radius: 10px !important;
+  border: none !important;
+  backdrop-filter: blur(10px);
+}
+
+.ant-alert-success {
+  background: rgba(34, 197, 94, 0.1) !important;
+  border: 1px solid rgba(34, 197, 94, 0.2) !important;
+}
+
+/* Badge enhancements */
+.ant-badge-count {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3) !important;
+}
+
+/* Dropdown enhancements */
+.ant-dropdown {
+  border-radius: 12px !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15) !important;
+  backdrop-filter: blur(20px);
+}
+
+.dark .ant-dropdown {
+  background: rgba(30, 41, 59, 0.95) !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.4);
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.6);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(75, 85, 99, 0.4);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(75, 85, 99, 0.6);
+}
+
+/* Animation utilities */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.animate-pulse-slow {
+  animation: pulse 2s infinite;
+}
+
+/* Custom utility classes */
+.text-gradient {
+  background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.shadow-glow {
+  box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
+}
+
+.border-gradient {
+  border: 1px solid;
+  border-image: linear-gradient(135deg, #0ea5e9, #06b6d4) 1;
+}
