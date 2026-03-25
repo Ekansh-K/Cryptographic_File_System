@@ -1,0 +1,30 @@
+[package]
+name = "cfs-ui"
+version = "0.1.0"
+description = "CFS Encrypted Filesystem Manager"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "cfs_ui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+base64 = "0.22"
+zeroize = "1"
+cfs-io = { path = "../.." }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+winfsp = "0.12"
+

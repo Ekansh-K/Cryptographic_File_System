@@ -1,0 +1,39 @@
+[package]
+name = "cfs-io"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aes = "0.8"
+anyhow = "1"
+argon2 = { version = "0.6.0-rc.7", features = ["parallel"] }
+clap = { version = "4", features = ["derive"] }
+crc32fast = "1"
+ctrlc = "3"
+hmac = "0.12"
+lru = "0.12"
+pbkdf2 = "0.12"
+rand = "0.8"
+rpassword = "7"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+siphasher = "1"
+uuid = { version = "1", features = ["v4"] }
+winfsp = { version = "0.12", features = ["system"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+] }
+xts-mode = "0.5"
+zeroize = "1"
+
+[build-dependencies]
+winfsp = "0.12"
+
+[dev-dependencies]
+tempfile = "3"
