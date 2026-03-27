@@ -815,3 +815,182 @@ pub fn benchmark_kdf(
         .map_err(|e| format!("Benchmark failed: {e}"))?;
     Ok(duration.as_millis() as u64)
 }
+
+// ---------------------------------------------------------------------------
+// I/O Benchmark
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+pub struct IoBenchmarkResult {
+    pub size_label: String,
+    pub size_bytes: u64,
+    pub write_speed_mbps: f64,
+    pub read_speed_mbps: f64,
+    pub write_time_ms: f64,
+    pub read_time_ms: f64,
+    pub sync_time_ms: f64,
+}
+
+// ---------------------------------------------------------------------------
+// Standalone Format I/O Benchmark (no open volume required)
+// ---------------------------------------------------------------------------
+
+/// Cancel a running I/O benchmark.
+#[tauri::command]
+pub fn cancel_benchmark(state: State<'_, AppState>) {
+    state.bench_cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Benchmark I/O with a *temporary* volume formatted using the given options.
+/// Creates a temp backing file, formats it, runs `runs` iterations of
+/// write/read (reusing the same volume), averages the results, then cleans up.
+///
+/// Fixes:
+///   #1/#7 — volume is created once per call (not N times for N runs).
+///   #2    — sync() is timed separately and excluded from write throughput.
+///   #8    — checks `bench_cancel` between runs so the user can abort.
+#[tauri::command]
+pub fn benchmark_format_io(
+    state: State<'_, AppState>,
+    format_options: FormatOptionsDto,
+    size_bytes: u64,
+    label: String,
+    runs: u32,
+) -> Result<IoBenchmarkResult, String> {
+    if size_bytes == 0 {
+        return Err("Benchmark size must be greater than 0".into());
+    }
+    let runs = runs.max(1);
+
+    // Reset the cancellation flag at the start.
+    state.bench_cancel.store(false, std::sync::atomic::Ordering::Relaxed);
+
+    let opts = format_options.to_format_options()?;
+
+    // We need a temp volume large enough to hold:
+    //   metadata (superblock, inodes, bitmap, journal) + the benchmark data.
+    // Add 64 MiB for metadata overhead (superblock, inode table, journals, bitmap).
+    // The data is written once then read back in-place — no doubling needed.
+    let min_volume_bytes: u64 = (size_bytes + 64 * 1024 * 1024).max(16 * 1024 * 1024);
+
+    // Create a temporary file
+    let tmp_dir = std::env::temp_dir();
+    let tmp_path = tmp_dir.join(format!("__cfs_bench_{}.img", std::process::id()));
+    let tmp_path_str = tmp_path.to_string_lossy().to_string();
+
+    // Ensure cleanup even on error
+    struct TmpGuard(std::path::PathBuf);
+    impl Drop for TmpGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    let _guard = TmpGuard(tmp_path.clone());
+
+    // Create the backing file
+    {
+        let f = std::fs::File::create(&tmp_path)
+            .map_err(|e| format!("Cannot create temp file: {e}"))?;
+        f.set_len(min_volume_bytes)
+            .map_err(|e| format!("Cannot allocate temp file: {e}"))?;
+    }
+
+    // Open as block device and format
+    let dev = FileBlockDevice::open(Path::new(&tmp_path_str), None)
+        .map_err(|e| format!("Cannot open temp block device: {e}"))?;
+    let vol = CFSVolume::format_v3(Box::new(dev), &opts)
+        .map_err(|e| format!("Cannot format temp volume: {e}"))?;
+
+    // Check free space — scope the superblock guard
+    let free_bytes = {
+        let sb = vol.superblock();
+        sb.free_blocks * sb.block_size as u64
+    };
+    if size_bytes > free_bytes {
+        return Err(format!(
+            "Temp volume too small for benchmark: need {} bytes but only {} free. Try a smaller test size.",
+            size_bytes, free_bytes
+        ));
+    }
+
+    let bench_path = "/__cfs_format_bench_tmp";
+
+    const MAX_CHUNK: usize = 4 * 1024 * 1024; // 4 MiB
+    let chunk_size = (size_bytes as usize).min(MAX_CHUNK);
+    let chunk = vec![0xAAu8; chunk_size];
+
+    let mut total_write_us: u64 = 0;
+    let mut total_read_us: u64 = 0;
+    let mut total_sync_us: u64 = 0;
+    let mut completed_runs: u32 = 0;
+
+    for run_idx in 0..runs {
+        // ── Cancellation check ──
+        if state.bench_cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("Benchmark cancelled".into());
+        }
+
+        // Clean up any leftover from prior run, then create a fresh file.
+        if run_idx > 0 {
+            let _ = vol.delete_file(bench_path);
+        }
+        vol.create_file(bench_path)
+            .map_err(|e| format!("Cannot create benchmark file (run {run_idx}): {e}"))?;
+
+        // ── Write benchmark (sync is timed separately) ──
+        let write_start = std::time::Instant::now();
+        let mut offset: u64 = 0;
+        while offset < size_bytes {
+            let remaining = (size_bytes - offset) as usize;
+            let to_write = remaining.min(chunk_size);
+            vol.write_file(bench_path, offset, &chunk[..to_write])
+                .map_err(|e| format!("Write failed at offset {offset}: {e}"))?;
+            offset += to_write as u64;
+        }
+        let write_elapsed = write_start.elapsed();
+
+        // ── Sync (measured separately) ──
+        let sync_start = std::time::Instant::now();
+        vol.sync().map_err(|e| format!("Sync failed: {e}"))?;
+        let sync_elapsed = sync_start.elapsed();
+
+        // ── Read benchmark ──
+        let read_start = std::time::Instant::now();
+        let mut offset: u64 = 0;
+        while offset < size_bytes {
+            let remaining = (size_bytes - offset) as usize;
+            let to_read = remaining.min(chunk_size) as u64;
+            let _data = vol.read_file(bench_path, offset, to_read)
+                .map_err(|e| format!("Read failed at offset {offset}: {e}"))?;
+            offset += to_read;
+        }
+        let read_elapsed = read_start.elapsed();
+
+        total_write_us += write_elapsed.as_micros() as u64;
+        total_read_us += read_elapsed.as_micros() as u64;
+        total_sync_us += sync_elapsed.as_micros() as u64;
+        completed_runs += 1;
+    }
+
+    // Cleanup: delete benchmark file, drop volume.
+    // The TmpGuard will delete the backing file on drop.
+    let _ = vol.delete_file(bench_path);
+
+    let n = completed_runs as f64;
+    let avg_write_us = total_write_us as f64 / n;
+    let avg_read_us = total_read_us as f64 / n;
+    let avg_sync_us = total_sync_us as f64 / n;
+    let size_mb = size_bytes as f64 / (1024.0 * 1024.0);
+    let write_secs = avg_write_us / 1_000_000.0;
+    let read_secs = avg_read_us / 1_000_000.0;
+
+    Ok(IoBenchmarkResult {
+        size_label: label,
+        size_bytes,
+        write_speed_mbps: if write_secs > 0.0 { size_mb / write_secs } else { 0.0 },
+        read_speed_mbps: if read_secs > 0.0 { size_mb / read_secs } else { 0.0 },
+        write_time_ms: avg_write_us / 1000.0,
+        read_time_ms: avg_read_us / 1000.0,
+        sync_time_ms: avg_sync_us / 1000.0,
+    })
+}

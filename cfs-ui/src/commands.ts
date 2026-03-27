@@ -10,6 +10,7 @@ import type {
   RawPartitionInfo,
   VolumeFileDto,
   FormatOptionsDto,
+  IoBenchmarkResult,
 } from "./types";
 
 export async function detectVolume(path: string): Promise<DetectResult> {
@@ -125,4 +126,17 @@ export async function listFreeDriveLetters(): Promise<string[]> {
 
 export async function getDiskFreeSpace(path?: string): Promise<number> {
   return invoke("get_disk_free_space", { path });
+}
+
+export async function benchmarkFormatIo(
+  formatOptions: FormatOptionsDto,
+  sizeBytes: number,
+  label: string,
+  runs: number
+): Promise<IoBenchmarkResult> {
+  return invoke("benchmark_format_io", { formatOptions, sizeBytes, label, runs });
+}
+
+export async function cancelBenchmark(): Promise<void> {
+  return invoke("cancel_benchmark");
 }

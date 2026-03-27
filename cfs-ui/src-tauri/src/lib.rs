@@ -2,6 +2,8 @@ mod state;
 mod commands;
 
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -10,6 +12,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState {
             volume: Mutex::new(None),
+            bench_cancel: Arc::new(AtomicBool::new(false)),
         })
         .invoke_handler(tauri::generate_handler![
             commands::detect_volume,
@@ -30,6 +33,8 @@ pub fn run() {
             commands::list_free_drive_letters,
             commands::get_disk_free_space,
             commands::benchmark_kdf,
+            commands::benchmark_format_io,
+            commands::cancel_benchmark,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

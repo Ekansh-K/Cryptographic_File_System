@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
 use cfs_io::volume::CFSVolume;
 use cfs_io::fuse::MountHandle;
 
@@ -12,4 +13,6 @@ pub struct OpenVolume {
 
 pub struct AppState {
     pub volume: Mutex<Option<OpenVolume>>,
+    /// Cancellation flag for long-running benchmarks.
+    pub bench_cancel: Arc<AtomicBool>,
 }

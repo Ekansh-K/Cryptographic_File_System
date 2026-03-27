@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { benchmarkKdf } from "../commands";
+import { benchmarkKdf, benchmarkFormatIo, cancelBenchmark } from "../commands";
+import type { IoBenchmarkResult, FormatOptionsDto } from "../types";
 
 // ─── Preset definitions (must mirror Rust FormatOptions presets) ────────────
 interface PresetValues {
@@ -131,6 +132,49 @@ export default function AdvancedSettingsModal({
   // Track raw octal text while user types so we don't mangle partial input
   const [permOctalText, setPermOctalText] = useState(() => toOctalStr(formatDefaultPermissions));
 
+  // ── I/O benchmark state ──────────────────────────────────────────────────
+  type IoBenchState = "idle" | "running" | "done";
+  interface SizeResult {
+    label: string;
+    bytes: number;
+    status: "pending" | "running" | "done" | "error";
+    result?: IoBenchmarkResult;
+    runCount?: number; // how many runs were averaged
+    error?: string;
+  }
+  const ALL_PRESETS: { key: string; label: string; bytes: number }[] = [
+    { key: "small",  label: "Small (4 KiB)",  bytes: 4 * 1024 },
+    { key: "medium", label: "Medium (1 MiB)", bytes: 1 * 1024 * 1024 },
+    { key: "large",  label: "Large (16 MiB)", bytes: 16 * 1024 * 1024 },
+    { key: "xl",     label: "XL (128 MiB)",   bytes: 128 * 1024 * 1024 },
+    { key: "xxl",    label: "XXL (512 MiB)",  bytes: 512 * 1024 * 1024 },
+  ];
+  const GORLOCK = { key: "gorlock", label: "Gorlock (4 GiB)", bytes: 4 * 1024 * 1024 * 1024 };
+
+  const [ioBenchState, setIoBenchState] = useState<IoBenchState>("idle");
+  const [ioBenchResults, setIoBenchResults] = useState<SizeResult[]>([]);
+  // Per-preset toggle — all on by default
+  const [enabledKeys, setEnabledKeys] = useState<Set<string>>(
+    () => new Set(["small", "medium", "large", "xl", "xxl"])
+  );
+  const [enableGorlock, setEnableGorlock] = useState(false);
+  // Averaging
+  const [useAvg, setUseAvg] = useState(true);
+  const [avgRuns, setAvgRuns] = useState(5);
+
+  function fmtSpeed(mbps: number): string {
+    if (mbps >= 1024) return `${(mbps / 1024).toFixed(2)} GiB/s`;
+    if (mbps >= 1) return `${mbps.toFixed(2)} MiB/s`;
+    return `${(mbps * 1024).toFixed(1)} KiB/s`;
+  }
+  function fmtTime(ms: number): string {
+    if (ms >= 60_000) return `${(ms / 60_000).toFixed(1)}m`;
+    if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`;
+    if (ms >= 1) return `${ms.toFixed(1)}ms`;
+    if (ms > 0) return `${(ms * 1000).toFixed(0)}µs`;
+    return `<1µs`;
+  }
+
   if (!open) return null;
 
   // ── Preset apply ─────────────────────────────────────────────────────────
@@ -164,6 +208,64 @@ export default function AdvancedSettingsModal({
     } finally {
       setBenchmarking(false);
     }
+  }
+
+  async function handleIoBenchmark() {
+    const activeSizes = [
+      ...ALL_PRESETS.filter((p) => enabledKeys.has(p.key)),
+      ...(enableGorlock ? [GORLOCK] : []),
+    ];
+    if (activeSizes.length === 0) return;
+
+    setIoBenchState("running");
+    const fmtOpts: FormatOptionsDto = {
+      block_size: formatBlockSize,
+      inode_size: formatInodeSize,
+      inode_ratio: formatInodeRatio,
+      journal_percent: formatJournalPercent,
+      volume_label: formatVolumeLabel || undefined,
+      secure_delete: formatSecureDelete,
+      default_permissions: formatDefaultPermissions,
+      error_behavior: formatErrorBehavior,
+    };
+
+    const initial: SizeResult[] = activeSizes.map((p) => ({
+      label: p.label,
+      bytes: p.bytes,
+      status: "pending" as const,
+    }));
+    setIoBenchResults(initial);
+    const updated = [...initial];
+
+    const n = useAvg ? avgRuns : 1;
+
+    for (let i = 0; i < activeSizes.length; i++) {
+      updated[i] = { ...updated[i], status: "running" };
+      setIoBenchResults([...updated]);
+      try {
+        // Averaging is now handled inside Rust (single volume per size tier).
+        const res = await benchmarkFormatIo(fmtOpts, activeSizes[i].bytes, activeSizes[i].label, n);
+        updated[i] = { ...updated[i], status: "done", result: res, runCount: n };
+      } catch (e) {
+        const msg = String(e);
+        if (msg.includes("cancelled")) {
+          // Mark remaining as pending and stop
+          for (let j = i; j < activeSizes.length; j++) {
+            updated[j] = { ...updated[j], status: "pending" };
+          }
+          setIoBenchResults([...updated]);
+          setIoBenchState("idle");
+          return;
+        }
+        updated[i] = { ...updated[i], status: "error", error: msg };
+      }
+      setIoBenchResults([...updated]);
+    }
+    setIoBenchState("done");
+  }
+
+  async function handleCancelBenchmark() {
+    try { await cancelBenchmark(); } catch (_) { /* best-effort */ }
   }
 
   function handleOverlayClick(e: React.MouseEvent<HTMLDivElement>) {
@@ -802,12 +904,176 @@ export default function AdvancedSettingsModal({
 
               <div className="border-t border-border" />
 
+              {/* ── I/O Benchmark ── */}
+              <div>
+                <p className="text-xs text-text-muted mb-3 uppercase tracking-wider">I/O Benchmark</p>
+                <p className="text-xs text-text-muted mb-3 leading-relaxed">
+                  Creates a temporary volume using the format settings above and measures sequential write/read throughput.
+                  Select which sizes to include, configure averaging, then click Run.
+                </p>
+
+                {/* Test selection */}
+                <div className="mb-3">
+                  <p className="text-xs text-text-muted mb-2">Test Sizes</p>
+                  <div className="grid grid-cols-3 gap-x-6 gap-y-1.5">
+                    {ALL_PRESETS.map((p) => (
+                      <label key={p.key} className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={enabledKeys.has(p.key)}
+                          onChange={(e) => {
+                            const next = new Set(enabledKeys);
+                            if (e.target.checked) next.add(p.key); else next.delete(p.key);
+                            setEnabledKeys(next);
+                          }}
+                          disabled={ioBenchState === "running"}
+                          className="accent-text"
+                        />
+                        <span className="text-sm text-text">{p.label}</span>
+                      </label>
+                    ))}
+                    {/* Gorlock — heavyweight, separate warning */}
+                    <label className="flex items-center gap-2 cursor-pointer select-none col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={enableGorlock}
+                        onChange={(e) => setEnableGorlock(e.target.checked)}
+                        disabled={ioBenchState === "running"}
+                        className="accent-text"
+                      />
+                      <span className="text-sm text-text">Gorlock (4 GiB)</span>
+                      <span className="text-xs text-text-muted">⚠ needs ~4 GiB free on system drive, takes several minutes</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="border-t border-border mb-3" />
+
+                {/* Averaging */}
+                <div className="mb-3">
+                  <label className="flex items-center gap-2 cursor-pointer select-none mb-2">
+                    <input
+                      type="checkbox"
+                      checked={useAvg}
+                      onChange={(e) => setUseAvg(e.target.checked)}
+                      disabled={ioBenchState === "running"}
+                      className="accent-text"
+                    />
+                    <span className="text-sm text-text">Average consecutive runs</span>
+                  </label>
+                  {useAvg && (
+                    <div className="flex items-center gap-2 ml-5">
+                      <span className="text-xs text-text-muted">Runs:</span>
+                      {([2, 3, 5, 10] as const).map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setAvgRuns(n)}
+                          disabled={ioBenchState === "running"}
+                          className={[
+                            "px-2.5 py-0.5 text-xs border",
+                            avgRuns === n
+                              ? "bg-surface-active text-text-bright border-border-focus"
+                              : "bg-bg text-text-muted border-border hover:border-border-focus hover:text-text",
+                          ].join(" ")}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                      <span className="text-xs text-text-muted">
+                        — each test runs {avgRuns}×, result is the mean
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleIoBenchmark}
+                    disabled={ioBenchState === "running" || (enabledKeys.size === 0 && !enableGorlock)}
+                    className="px-4 py-1.5 text-sm border border-border bg-bg text-text hover:border-border-focus hover:text-text-bright disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {ioBenchState === "running" ? "Running…" : ioBenchState === "done" ? "⟳ Re-run" : "⏱ Run Benchmark"}
+                  </button>
+                  {ioBenchState === "running" && (
+                    <button
+                      type="button"
+                      onClick={handleCancelBenchmark}
+                      className="px-4 py-1.5 text-sm border border-border bg-bg text-error hover:border-error hover:text-error"
+                    >
+                      ✕ Cancel
+                    </button>
+                  )}
+                </div>
+
+                {ioBenchResults.length > 0 && (
+                  <div className="mt-3 border border-border">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-bg">
+                          <th className="text-left px-2 py-1 text-text-muted font-normal">Size</th>
+                          <th className="text-left px-2 py-1 text-text-muted font-normal">Status</th>
+                          <th className="text-right px-2 py-1 text-text-muted font-normal">Write</th>
+                          <th className="text-right px-2 py-1 text-text-muted font-normal">Read</th>
+                          <th className="text-right px-2 py-1 text-text-muted font-normal">W Time</th>
+                          <th className="text-right px-2 py-1 text-text-muted font-normal">R Time</th>
+                          <th className="text-right px-2 py-1 text-text-muted font-normal">Sync</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ioBenchResults.map((r, i) => (
+                          <tr key={i} className="border-b border-border last:border-b-0">
+                            <td className="px-2 py-1 text-text">{r.label}</td>
+                            <td className="px-2 py-1">
+                              {r.status === "pending" && <span className="text-text-muted">pending</span>}
+                              {r.status === "running" && <span className="text-text-bright">running…</span>}
+                              {r.status === "done" && (
+                                <span className="text-text">
+                                  ✓{r.runCount && r.runCount > 1
+                                    ? <span className="text-text-muted"> avg×{r.runCount}</span>
+                                    : null}
+                                </span>
+                              )}
+                              {r.status === "error" && <span className="text-error" title={r.error}>✗</span>}
+                            </td>
+                            <td className="px-2 py-1 text-right text-text font-mono">
+                              {r.result ? fmtSpeed(r.result.write_speed_mbps) : "—"}
+                            </td>
+                            <td className="px-2 py-1 text-right text-text font-mono">
+                              {r.result ? fmtSpeed(r.result.read_speed_mbps) : "—"}
+                            </td>
+                            <td className="px-2 py-1 text-right text-text-muted font-mono">
+                              {r.result ? fmtTime(r.result.write_time_ms) : "—"}
+                            </td>
+                            <td className="px-2 py-1 text-right text-text-muted font-mono">
+                              {r.result ? fmtTime(r.result.read_time_ms) : "—"}
+                            </td>
+                            <td className="px-2 py-1 text-right text-text-muted font-mono">
+                              {r.result ? fmtTime(r.result.sync_time_ms) : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-border" />
+
               {/* ── Info box ── */}
               <div className="border border-border px-3 py-2 bg-bg">
                 <p className="text-xs text-text-muted leading-relaxed">
                   <span className="text-text">Note:</span> These parameters are written to the superblock at format time and{" "}
                   <span className="text-text">cannot be changed after the volume is created</span>.
                   Choose them carefully before clicking Create Volume.
+                </p>
+                <p className="text-xs text-text-muted leading-relaxed mt-1">
+                  <span className="text-text">Benchmark info:</span> Speeds measure full CFS API throughput
+                  (path resolution, locking, block allocation, extent tree, caching) — not raw disk speed.
+                  Sync time is measured separately. Multi-run averaging reuses a single volume; later runs
+                  benefit from warm OS page cache.
                 </p>
               </div>
             </>

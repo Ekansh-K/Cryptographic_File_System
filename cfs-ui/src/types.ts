@@ -102,3 +102,14 @@ export interface FormatOptionsDto {
   blocks_per_group?: number;
   preset?: string;
 }
+
+/** Matches the Rust IoBenchmarkResult DTO */
+export interface IoBenchmarkResult {
+  size_label: string;
+  size_bytes: number;
+  write_speed_mbps: number;
+  read_speed_mbps: number;
+  write_time_ms: number;
+  read_time_ms: number;
+  sync_time_ms: number;
+}
