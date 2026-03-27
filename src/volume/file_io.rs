@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use std::cmp::min;
+use std::collections::VecDeque;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::block_device::CFSBlockDevice;
@@ -277,6 +278,9 @@ pub fn read_data(
     let mut result = Vec::with_capacity((end - offset) as usize);
     let mut pos = offset;
 
+    // Pre-allocate the block buffer once and reuse across iterations.
+    let mut block_buf = vec![0u8; bs as usize];
+
     while pos < end {
         let logical_block = pos / bs;
         let offset_in_block = pos % bs;
@@ -288,7 +292,6 @@ pub fn read_data(
             // Sparse hole — return zeros
             result.resize(result.len() + chunk as usize, 0);
         } else {
-            let mut block_buf = vec![0u8; bs as usize];
             dev.read(physical * bs, &mut block_buf)?;
             result.extend_from_slice(
                 &block_buf[offset_in_block as usize..(offset_in_block + chunk) as usize],
@@ -360,75 +363,108 @@ pub fn write_data(
     // We batch these so extent_mark_initialized can do fewer tree edits.
     let mut uninit_ranges: Vec<(u32, u32)> = Vec::new(); // (start, count)
 
-    while data_pos < data.len() {
-        let logical_block = pos / bs;
-        let offset_in_block = pos % bs;
-        let chunk = min(bs - offset_in_block, (data.len() - data_pos) as u64);
+    // Pre-allocate the block buffer once and reuse it across iterations (#5).
+    let mut block_buf = vec![0u8; bs as usize];
 
-        // For extent-based inodes, check uninit status first
-        let physical;
-        if inode.flags & INODE_FLAG_EXTENTS != 0 {
-            match probe_extent_block(dev, inode, logical_block as u32, block_size)? {
-                BlockStatus::Mapped(phys) => {
-                    physical = phys;
-                }
-                BlockStatus::Uninitialized(phys) => {
-                    // Block already allocated as uninit — write directly, mark init later
-                    physical = phys;
-                    // Accumulate for batch mark_initialized
-                    let lb = logical_block as u32;
-                    match uninit_ranges.last_mut() {
-                        Some((start, count)) if *start + *count == lb => {
-                            *count += 1;
-                        }
-                        _ => {
-                            uninit_ranges.push((lb, 1));
+    // Lazy batch-allocation pool: instead of calling alloc(1) per Hole block,
+    // we grab up to ALLOC_BATCH blocks at once and draw from the pool (#6).
+    const ALLOC_BATCH: u64 = 64;
+    let mut alloc_pool: VecDeque<u64> = VecDeque::new();
+
+    // Wrap the loop so we can free unused pool blocks on both success and error.
+    let loop_result: Result<()> = (|| -> Result<()> {
+        while data_pos < data.len() {
+            let logical_block = pos / bs;
+            let offset_in_block = pos % bs;
+            let chunk = min(bs - offset_in_block, (data.len() - data_pos) as u64);
+            let is_partial = offset_in_block != 0 || chunk < bs;
+
+            // For extent-based inodes, check uninit status first
+            let physical;
+            let mut is_new_block = false;
+            if inode.flags & INODE_FLAG_EXTENTS != 0 {
+                match probe_extent_block(dev, inode, logical_block as u32, block_size)? {
+                    BlockStatus::Mapped(phys) => {
+                        physical = phys;
+                    }
+                    BlockStatus::Uninitialized(phys) => {
+                        // Block already allocated as uninit — write directly, mark init later
+                        physical = phys;
+                        // Accumulate for batch mark_initialized
+                        let lb = logical_block as u32;
+                        match uninit_ranges.last_mut() {
+                            Some((start, count)) if *start + *count == lb => {
+                                *count += 1;
+                            }
+                            _ => {
+                                uninit_ranges.push((lb, 1));
+                            }
                         }
                     }
-                }
-                BlockStatus::Hole => {
-                    // Allocate a new data block
-                    let new = alloc.alloc(dev, sb, 1)?;
-                    physical = new[0];
-                    set_block_ptr(dev, inode, logical_block, physical, block_size, alloc, sb)?;
-                    inode.block_count += 1;
-
-                    if offset_in_block != 0 || chunk < bs {
-                        let zero = vec![0u8; bs as usize];
-                        dev.write(physical * bs, &zero)?;
+                    BlockStatus::Hole => {
+                        // Draw from the pre-allocation pool; refill when empty.
+                        if alloc_pool.is_empty() {
+                            let remaining_data = (data.len() - data_pos) as u64;
+                            let remaining_blocks = (remaining_data + bs - 1) / bs;
+                            let batch = remaining_blocks.min(ALLOC_BATCH).max(1);
+                            let new = alloc.alloc(dev, sb, batch)?;
+                            alloc_pool.extend(new);
+                        }
+                        physical = alloc_pool.pop_front().unwrap();
+                        set_block_ptr(dev, inode, logical_block, physical, block_size, alloc, sb)?;
+                        inode.block_count += 1;
+                        is_new_block = true;
                     }
-                }
-            }
-        } else {
-            // Legacy path
-            let p = get_block_ptr(dev, inode, logical_block, block_size)?;
-            if p == 0 {
-                let new = alloc.alloc(dev, sb, 1)?;
-                physical = new[0];
-                set_block_ptr(dev, inode, logical_block, physical, block_size, alloc, sb)?;
-                inode.block_count += 1;
-
-                if offset_in_block != 0 || chunk < bs {
-                    let zero = vec![0u8; bs as usize];
-                    dev.write(physical * bs, &zero)?;
                 }
             } else {
-                physical = p;
+                // Legacy path
+                let p = get_block_ptr(dev, inode, logical_block, block_size)?;
+                if p == 0 {
+                    // Draw from the pre-allocation pool; refill when empty.
+                    if alloc_pool.is_empty() {
+                        let remaining_data = (data.len() - data_pos) as u64;
+                        let remaining_blocks = (remaining_data + bs - 1) / bs;
+                        let batch = remaining_blocks.min(ALLOC_BATCH).max(1);
+                        let new = alloc.alloc(dev, sb, batch)?;
+                        alloc_pool.extend(new);
+                    }
+                    physical = alloc_pool.pop_front().unwrap();
+                    set_block_ptr(dev, inode, logical_block, physical, block_size, alloc, sb)?;
+                    inode.block_count += 1;
+                    is_new_block = true;
+                } else {
+                    physical = p;
+                }
+            };
+
+            // Read-modify-write for partial blocks. For new blocks, zero the
+            // buffer in memory instead of writing zeros to disk + reading them
+            // back — saves 1 read + 1 write per new partial block.
+            if is_partial {
+                if is_new_block {
+                    block_buf.fill(0); // zero in memory (no disk I/O)
+                } else {
+                    dev.read(physical * bs, &mut block_buf)?;
+                }
             }
-        };
+            block_buf[offset_in_block as usize..(offset_in_block + chunk) as usize]
+                .copy_from_slice(&data[data_pos..data_pos + chunk as usize]);
+            dev.write(physical * bs, &block_buf)?;
 
-        // Read-modify-write if partial block
-        let mut block_buf = vec![0u8; bs as usize];
-        if offset_in_block != 0 || chunk < bs {
-            dev.read(physical * bs, &mut block_buf)?;
+            pos += chunk;
+            data_pos += chunk as usize;
         }
-        block_buf[offset_in_block as usize..(offset_in_block + chunk) as usize]
-            .copy_from_slice(&data[data_pos..data_pos + chunk as usize]);
-        dev.write(physical * bs, &block_buf)?;
+        Ok(())
+    })();
 
-        pos += chunk;
-        data_pos += chunk as usize;
+    // Return any unused pre-allocated blocks to the allocator (best-effort).
+    if !alloc_pool.is_empty() {
+        let unused: Vec<u64> = alloc_pool.drain(..).collect();
+        let _ = alloc.free(dev, sb, &unused);
     }
+
+    // Propagate any error from the write loop.
+    loop_result?;
 
     // Now mark any uninit extents as initialized
     for (start, count) in uninit_ranges {
