@@ -1,3 +1,0 @@
-CFS mounted successfully.
-Mount point: T:
-Press Ctrl+C to unmount...
