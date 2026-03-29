@@ -16,15 +16,18 @@ impl Drop for XtsCipher {
     fn drop(&mut self) {
         // Zero the memory that holds the AES key schedule so that key material
         // doesn't linger in heap/stack after the cipher is no longer needed.
+        // We use volatile writes to prevent the compiler from optimizing away
+        // this zeroing as a dead store (the standard zeroize concern).
         // SAFETY: `self.xts` is being dropped immediately after this; we will
         // never read from it again, so overwriting its bytes is sound.
-        unsafe {
-            std::ptr::write_bytes(
-                &raw mut self.xts as *mut u8,
-                0,
-                std::mem::size_of::<Xts128<Aes256>>(),
-            );
+        let ptr = &raw mut self.xts as *mut u8;
+        let len = std::mem::size_of::<Xts128<Aes256>>();
+        for i in 0..len {
+            // SAFETY: ptr+i is within the Xts128 allocation.
+            unsafe { std::ptr::write_volatile(ptr.add(i), 0u8); }
         }
+        // Compiler fence to ensure the volatile writes are not reordered past drop.
+        std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
     }
 }
 

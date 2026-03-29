@@ -172,7 +172,7 @@ pub fn entries_per_block_v3(block_size: u32) -> u32 {
 /// Check whether a directory block has a v3 checksum record in its last slot.
 pub fn block_has_checksum(buf: &[u8], block_size: u32) -> bool {
     let last_slot = (entries_per_block_v2(block_size) - 1) as usize * DIR_ENTRY_SIZE;
-    if buf.len() < last_slot + 4 {
+    if buf.len() < last_slot + 8 {
         return false;
     }
     let magic = u32::from_le_bytes(buf[last_slot..last_slot + 4].try_into().unwrap());
@@ -199,6 +199,9 @@ pub fn stamp_checksum(buf: &mut [u8], block_size: u32) {
 /// Verify the checksum in a v3 directory block. Returns Ok(()) or error.
 fn verify_dir_block_checksum(buf: &[u8], block_size: u32, block_addr: u64) -> Result<()> {
     let last_slot = entries_per_block_v3(block_size) as usize * DIR_ENTRY_SIZE;
+    if buf.len() < last_slot + 8 {
+        bail!("dir block {} truncated: need {} bytes, got {}", block_addr, last_slot + 8, buf.len());
+    }
     let stored = u32::from_le_bytes(buf[last_slot + 4..last_slot + 8].try_into().unwrap());
     let computed = compute_dir_block_checksum(buf, block_size);
     if stored != computed {

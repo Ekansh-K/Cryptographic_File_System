@@ -464,6 +464,12 @@ impl Journal {
         // Flush again to ensure commit record itself is on disk
         dev.flush()?;
 
+        // Persist journal superblock so the updated head covers all entries
+        // (BEGIN + undo records + COMMIT). Without this, a crash after commit
+        // but before the next sync/checkpoint would leave the on-disk head
+        // pointing only past BEGIN, making undo records invisible to replay.
+        self.save_jsb(dev)?;
+
         self.active_txn = None;
         self.active_undo.clear();
         Ok(())
@@ -479,8 +485,10 @@ impl Journal {
             bail!("no active transaction with ID {}", txn_id);
         }
 
-        // Replay undo records: restore old block contents
-        for (target_block, old_data) in &self.active_undo {
+        // Replay undo records in reverse order: restore old block contents.
+        // Reverse order ensures dependent blocks (data) are restored before
+        // metadata (inodes, indirect tables) that point to them.
+        for (target_block, old_data) in self.active_undo.iter().rev() {
             let disk_offset = target_block * self.block_size as u64;
             dev.write(disk_offset, old_data)?;
         }
@@ -641,10 +649,21 @@ impl Journal {
                         let data_offset = data_block * self.block_size as u64;
                         let mut data_buf = vec![0u8; self.block_size as usize];
                         dev.read(data_offset, &mut data_buf)?;
-                        if entry.read_data_block(&header_buf, &data_buf).is_err() {
-                            break; // Corrupt data block
-                        }
+                        let data_corrupt = entry.read_data_block(&header_buf, &data_buf).is_err();
                         scan_pos = self.advance(scan_pos);
+                        if data_corrupt {
+                            // Mark this transaction as having corrupt data so
+                            // replay treats it as incomplete, but keep scanning
+                            // to avoid losing later committed transactions.
+                            let txn = transactions
+                                .entry(entry.txn_id)
+                                .or_insert_with(|| {
+                                    scan_order.push(entry.txn_id);
+                                    TransactionRecord::new(entry.txn_id)
+                                });
+                            txn.has_corrupt_data = true;
+                            continue;
+                        }
                     }
 
                     let txn = transactions
@@ -671,7 +690,9 @@ impl Journal {
         // Phase 2: Undo incomplete transactions
         for txn_id in &scan_order {
             if let Some(txn) = transactions.get(txn_id) {
-                if txn.has_begin && !txn.has_commit && !txn.has_abort {
+                if txn.has_begin && !txn.has_commit && !txn.has_abort
+                    || txn.has_corrupt_data
+                {
                     // Incomplete: replay undo records in REVERSE order
                     for (target_block, old_data) in txn.undo_records.iter().rev() {
                         let disk_offset = target_block * self.block_size as u64;
@@ -758,6 +779,7 @@ struct TransactionRecord {
     has_begin: bool,
     has_commit: bool,
     has_abort: bool,
+    has_corrupt_data: bool,
     undo_records: Vec<(u64, Vec<u8>)>,
 }
 
@@ -768,6 +790,7 @@ impl TransactionRecord {
             has_begin: false,
             has_commit: false,
             has_abort: false,
+            has_corrupt_data: false,
             undo_records: Vec::new(),
         }
     }

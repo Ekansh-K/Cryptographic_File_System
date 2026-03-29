@@ -224,10 +224,18 @@ fn set_block_ptr_legacy(
         // Allocate L2 table if needed
         if l1_table[l1_idx as usize] == 0 {
             let table_blocks = alloc.alloc(dev, sb, 1)?;
-            l1_table[l1_idx as usize] = table_blocks[0];
+            let l2_block = table_blocks[0];
             let zero = vec![0u8; block_size as usize];
-            dev.write(l1_table[l1_idx as usize] * block_size as u64, &zero)?;
-            write_ptr_table(dev, inode.double_indirect, &l1_table, block_size)?;
+            if let Err(e) = dev.write(l2_block * block_size as u64, &zero)
+                .and_then(|_| {
+                    l1_table[l1_idx as usize] = l2_block;
+                    write_ptr_table(dev, inode.double_indirect, &l1_table, block_size)
+                })
+            {
+                // Free the allocated L2 block to avoid a permanent leak
+                let _ = alloc.free(dev, sb, &[l2_block]);
+                return Err(e);
+            }
         }
         let mut l2_table = read_ptr_table(dev, l1_table[l1_idx as usize], block_size)?;
         l2_table[l2_idx as usize] = physical_block;
@@ -246,7 +254,7 @@ fn now_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs()
+        .as_nanos() as u64
 }
 
 /// Read `len` bytes from a file inode starting at byte `offset`.

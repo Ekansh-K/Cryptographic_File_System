@@ -59,6 +59,7 @@ impl Bitmap {
             let buf_end = buf_start + self.block_size as usize;
             dev.read(disk_offset, &mut self.data[buf_start..buf_end])?;
         }
+        self.reset_hint();
         Ok(())
     }
 
@@ -244,6 +245,12 @@ impl Bitmap {
     /// Mark a bit as allocated (set to 1). No double-alloc check.
     /// Used internally by contiguous allocation.
     pub fn set_allocated(&mut self, index: u64) {
+        assert!(
+            index < self.total_bits,
+            "set_allocated: index {} out of bounds (total_bits {})",
+            index,
+            self.total_bits
+        );
         let byte_idx = (index / 8) as usize;
         let bit = index % 8;
         self.data[byte_idx] |= 1 << bit;

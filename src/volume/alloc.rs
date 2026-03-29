@@ -126,7 +126,9 @@ pub fn alloc_blocks(
             None => {
                 // Rollback
                 for &idx in &allocated {
-                    let _ = bitmap.free(idx);
+                    if let Err(e) = bitmap.free(idx) {
+                        eprintln!("CRITICAL: rollback failed for block {}: {}", idx, e);
+                    }
                 }
                 bail!("bitmap exhausted unexpectedly");
             }
@@ -142,10 +144,12 @@ pub fn free_blocks(
     sb: &mut Superblock,
     blocks: &[u64],
 ) -> Result<()> {
+    let mut freed_count = 0u64;
     for &idx in blocks {
         bitmap.free(idx)?;
+        freed_count += 1;
     }
-    sb.free_blocks += blocks.len() as u64;
+    sb.free_blocks += freed_count;
     Ok(())
 }
 

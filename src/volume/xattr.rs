@@ -233,6 +233,12 @@ fn collect_all_xattrs(
 
     // Inline xattrs
     if inode.xattr_inline_size > 0 && inode.flags & INODE_FLAG_INLINE_DATA == 0 {
+        if inode.xattr_inline_size as usize > MAX_INLINE_XATTR_SIZE {
+            bail!(
+                "xattr_inline_size {} exceeds MAX_INLINE_XATTR_SIZE {}",
+                inode.xattr_inline_size, MAX_INLINE_XATTR_SIZE
+            );
+        }
         let inline = parse_xattr_entries(
             &inode.inline_area[..inode.xattr_inline_size as usize],
         )?;

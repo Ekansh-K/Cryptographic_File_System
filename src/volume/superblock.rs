@@ -351,7 +351,7 @@ impl Superblock {
             inodes_per_group = inodes_per_block;
         }
 
-        let inode_table_blocks = inodes_per_group * opts.inode_size as u64 / bs;
+        let inode_table_blocks = ceil_div(inodes_per_group * opts.inode_size as u64, bs);
         let per_group_overhead = 2 + inode_table_blocks; // block_bm + inode_bm + inode_table
         if per_group_overhead >= blocks_per_group {
             bail!(
@@ -895,8 +895,10 @@ impl Superblock {
                 }
                 match Self::deserialize(&backup_buf) {
                     Ok(sb) => {
-                        // Backup is valid — restore primary
-                        let _ = dev.write(0, &backup_buf);
+                        // Backup is valid — attempt to restore primary
+                        if let Err(e) = dev.write(0, &backup_buf) {
+                            eprintln!("WARNING: failed to restore primary superblock from backup: {}", e);
+                        }
                         Ok(sb)
                     }
                     Err(_) => Err(primary_err),
@@ -995,6 +997,9 @@ pub fn compute_metadata_hmac(
         // Read whole blocks to satisfy sector alignment
         let gdt_disk_blocks = sb.gdt_blocks.max(1) as usize;
         let read_len = gdt_disk_blocks * sb.block_size as usize;
+        if gdt_total_bytes > read_len {
+            bail!("corrupted superblock: GDT size ({}) exceeds readable region ({})", gdt_total_bytes, read_len);
+        }
         let mut gdt_buf = vec![0u8; read_len];
         let gdt_disk_offset = sb.gdt_start * sb.block_size as u64;
         dev.read(gdt_disk_offset, &mut gdt_buf)?;

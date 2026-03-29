@@ -48,7 +48,9 @@ impl DelayedAllocManager {
         logical_block: u64,
         data: Vec<u8>,
     ) -> Result<()> {
-        assert_eq!(data.len(), self.block_size as usize);
+        if data.len() != self.block_size as usize {
+            bail!("delayed_alloc: data size {} != block_size {}", data.len(), self.block_size);
+        }
 
         // Check if overwrite (no new reservation needed)
         if let Some(inode_map) = self.pending.get_mut(&inode_idx) {

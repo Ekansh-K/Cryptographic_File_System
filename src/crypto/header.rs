@@ -141,11 +141,14 @@ impl CryptoHeader {
     pub fn unlock(&self, password: &[u8]) -> Result<[u8; 64]> {
         let params = self.kdf_params();
         let (mut kek, mut hmac_key) = derive_keys_with_params(password, &self.salt, &params)?;
-        let candidate = xor_key_wrap(&self.encrypted_key, &kek);
+        let mut candidate = xor_key_wrap(&self.encrypted_key, &kek);
         let result = verify_hmac(&hmac_key, &candidate, &self.key_hmac);
         kek.zeroize();
         hmac_key.zeroize();
-        result?;
+        if result.is_err() {
+            candidate.zeroize();
+            return Err(result.unwrap_err());
+        }
         Ok(candidate)
     }
 

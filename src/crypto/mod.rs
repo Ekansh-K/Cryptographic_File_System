@@ -57,9 +57,11 @@ impl EncryptedBlockDevice {
         mut inner: Box<dyn CFSBlockDevice>,
         password: &[u8],
     ) -> Result<Self> {
-        // Read the first block to determine encryption_unit from the header
-        // First, try reading with a minimal block size (4096) to get the header
-        let mut probe = vec![0u8; 4096];
+        // Read the first block to determine encryption_unit from the header.
+        // Use the larger of 4096 and the device's sector size so the read
+        // is always sector-aligned and large enough for the header fields.
+        let probe_size = std::cmp::max(4096, inner.sector_size() as usize);
+        let mut probe = vec![0u8; probe_size];
         inner.read(0, &mut probe)?;
         let hdr = CryptoHeader::deserialize(&probe)?;
 
@@ -78,20 +80,26 @@ impl EncryptedBlockDevice {
 
 impl CFSBlockDevice for EncryptedBlockDevice {
     fn read(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize> {
+        let eu = self.encryption_unit as usize;
+        if offset % eu as u64 != 0 {
+            anyhow::bail!("EncryptedBlockDevice::read offset ({offset}) is not aligned to encryption_unit ({eu})");
+        }
+        if buf.len() % eu != 0 {
+            anyhow::bail!("EncryptedBlockDevice::read length ({}) is not aligned to encryption_unit ({eu})", buf.len());
+        }
+
         let header_offset = self.header_blocks * self.encryption_unit as u64;
         let inner_offset = offset + header_offset;
 
         let n = self.inner.read(inner_offset, buf)?;
 
         // Decrypt in encryption_unit-sized chunks
-        let eu = self.encryption_unit as usize;
         let first_block = offset / self.encryption_unit as u64;
         let mut block_idx = first_block;
 
         for chunk in buf[..n].chunks_mut(eu) {
-            if chunk.len() == eu {
-                self.cipher.decrypt_block(block_idx, chunk);
-            }
+            debug_assert_eq!(chunk.len(), eu, "partial block in decryption — data would leak as plaintext");
+            self.cipher.decrypt_block(block_idx, chunk);
             block_idx += 1;
         }
 
@@ -99,19 +107,25 @@ impl CFSBlockDevice for EncryptedBlockDevice {
     }
 
     fn write(&mut self, offset: u64, buf: &[u8]) -> Result<usize> {
+        let eu = self.encryption_unit as usize;
+        if offset % eu as u64 != 0 {
+            anyhow::bail!("EncryptedBlockDevice::write offset ({offset}) is not aligned to encryption_unit ({eu})");
+        }
+        if buf.len() % eu != 0 {
+            anyhow::bail!("EncryptedBlockDevice::write length ({}) is not aligned to encryption_unit ({eu})", buf.len());
+        }
+
         let header_offset = self.header_blocks * self.encryption_unit as u64;
         let inner_offset = offset + header_offset;
 
         // Copy buffer so we don't mutate the caller's data
-        let eu = self.encryption_unit as usize;
         let mut encrypted = buf.to_vec();
         let first_block = offset / self.encryption_unit as u64;
         let mut block_idx = first_block;
 
         for chunk in encrypted.chunks_mut(eu) {
-            if chunk.len() == eu {
-                self.cipher.encrypt_block(block_idx, chunk);
-            }
+            debug_assert_eq!(chunk.len(), eu, "partial block in encryption — data would leak as plaintext");
+            self.cipher.encrypt_block(block_idx, chunk);
             block_idx += 1;
         }
 

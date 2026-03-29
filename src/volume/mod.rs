@@ -1508,6 +1508,8 @@ impl CFSVolume {
                     Some(idx) => {
                         let idx = idx as u32;
                         if idx == 0 {
+                            // Inode 0 is ROOT_INODE — skip it but account for its allocation
+                            sb.free_inodes = sb.free_inodes.saturating_sub(1);
                             match ibm_inner.alloc() {
                                 Some(idx2) => {
                                     sb.free_inodes = sb.free_inodes.saturating_sub(1);
