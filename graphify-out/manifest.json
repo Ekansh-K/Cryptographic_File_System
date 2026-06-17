@@ -1,0 +1,612 @@
+{
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\build.rs": {
+    "mtime": 1772908160.9083924,
+    "ast_hash": "20977bd9174a5ecca9535326c2e7dea3",
+    "semantic_hash": "20977bd9174a5ecca9535326c2e7dea3"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\package.json": {
+    "mtime": 1772887853.5815175,
+    "ast_hash": "a6a404cd769cea2a962ab86ad101e446",
+    "semantic_hash": "a6a404cd769cea2a962ab86ad101e446"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\tsconfig.json": {
+    "mtime": 1772887723.7532413,
+    "ast_hash": "7a931cf665b999dd157ba517f5cbd820",
+    "semantic_hash": "7a931cf665b999dd157ba517f5cbd820"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\tsconfig.node.json": {
+    "mtime": 1772887723.7532413,
+    "ast_hash": "281e378713152cccc7860c818db55849",
+    "semantic_hash": "281e378713152cccc7860c818db55849"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\vite.config.ts": {
+    "mtime": 1772895224.3324485,
+    "ast_hash": "074e6a94278558f70d72b4a5a0aff705",
+    "semantic_hash": "074e6a94278558f70d72b4a5a0aff705"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\App.tsx": {
+    "mtime": 1773490987.0267458,
+    "ast_hash": "1f98a419a8d332bc9290e7d2ca05a768",
+    "semantic_hash": "1f98a419a8d332bc9290e7d2ca05a768"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\commands.ts": {
+    "mtime": 1781614256.4073427,
+    "ast_hash": "eba7eb9a94d15d39e0ad84862e28ce04",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\main.tsx": {
+    "mtime": 1772895224.334446,
+    "ast_hash": "77538c82c1e29a9a7d2627adb1d6df4f",
+    "semantic_hash": "77538c82c1e29a9a7d2627adb1d6df4f"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\router.tsx": {
+    "mtime": 1772895224.334446,
+    "ast_hash": "0c71d0f848e2da51bb7863ce681e5afe",
+    "semantic_hash": "0c71d0f848e2da51bb7863ce681e5afe"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\store.ts": {
+    "mtime": 1773610431.9618168,
+    "ast_hash": "0a0dc87ef5f95a0d656e2b8493265deb",
+    "semantic_hash": "0a0dc87ef5f95a0d656e2b8493265deb"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\types.ts": {
+    "mtime": 1781614240.0551908,
+    "ast_hash": "7f30e0f1b66e1a0ce0754cee087a89bc",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\vite-env.d.ts": {
+    "mtime": 1772887723.7522342,
+    "ast_hash": "8f68c27c3fc38817b2726b20e2d4f1ee",
+    "semantic_hash": "8f68c27c3fc38817b2726b20e2d4f1ee"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\AdvancedSettingsModal.tsx": {
+    "mtime": 1781614303.5995893,
+    "ast_hash": "c93f6597961ba9c3175c30c45f0f11c4",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\BenchmarkModal.tsx": {
+    "mtime": 1781614422.8159094,
+    "ast_hash": "5278100bd3f00e57562fac2f18782d03",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\Breadcrumb.tsx": {
+    "mtime": 1772895221.3910522,
+    "ast_hash": "fe38961fbd33fe639ee4cdd9b1564403",
+    "semantic_hash": "fe38961fbd33fe639ee4cdd9b1564403"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\CreateVolumeForm.tsx": {
+    "mtime": 1781614316.3447325,
+    "ast_hash": "36a9fdc4e512aa6a2b80a403f13bdb91",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\ErrorToast.tsx": {
+    "mtime": 1772895224.334446,
+    "ast_hash": "e037335303334b07ee2483c758ab4b3a",
+    "semantic_hash": "e037335303334b07ee2483c758ab4b3a"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\FileList.tsx": {
+    "mtime": 1773491541.5319085,
+    "ast_hash": "0bf1f21a42c7a7cf45ddd65cb73549dd",
+    "semantic_hash": "0bf1f21a42c7a7cf45ddd65cb73549dd"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\FileRow.tsx": {
+    "mtime": 1773491539.4751241,
+    "ast_hash": "4a41f39659c40f41268943ed34649a30",
+    "semantic_hash": "4a41f39659c40f41268943ed34649a30"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\FileViewer.tsx": {
+    "mtime": 1772895221.3910522,
+    "ast_hash": "0dcef5d64367e6a91aedd96db8d7a8c2",
+    "semantic_hash": "0dcef5d64367e6a91aedd96db8d7a8c2"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\HexViewer.tsx": {
+    "mtime": 1772895221.3910522,
+    "ast_hash": "4f6924443f3c88fdbb93c91caf96e458",
+    "semantic_hash": "4f6924443f3c88fdbb93c91caf96e458"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\LockConfirmDialog.tsx": {
+    "mtime": 1773340466.689256,
+    "ast_hash": "ba73036d560dde3771cfb7578314fdb9",
+    "semantic_hash": "ba73036d560dde3771cfb7578314fdb9"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\MetadataPanel.tsx": {
+    "mtime": 1772895221.4040504,
+    "ast_hash": "7e9c52a2b2824c159b028321ee100841",
+    "semantic_hash": "7e9c52a2b2824c159b028321ee100841"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\Sidebar.tsx": {
+    "mtime": 1773491540.6745346,
+    "ast_hash": "4044c7cb08b200886e36e7810c8f8c08",
+    "semantic_hash": "4044c7cb08b200886e36e7810c8f8c08"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\StatusBar.tsx": {
+    "mtime": 1781005779.0372431,
+    "ast_hash": "b46e39e4d1897f5b67858cd2de19f9a7",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\TextViewer.tsx": {
+    "mtime": 1772895221.3910522,
+    "ast_hash": "b511a9f33eaa08d6c4c96df44e269a18",
+    "semantic_hash": "b511a9f33eaa08d6c4c96df44e269a18"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\components\\Titlebar.tsx": {
+    "mtime": 1772895212.2575512,
+    "ast_hash": "fed2f0aa40041f61c346671f38147e47",
+    "semantic_hash": "fed2f0aa40041f61c346671f38147e47"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\hooks\\useKeyboard.ts": {
+    "mtime": 1773491542.4350257,
+    "ast_hash": "381d54b9fb95a7282319b2ffb1eb4668",
+    "semantic_hash": "381d54b9fb95a7282319b2ffb1eb4668"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\screens\\BrowserScreen.tsx": {
+    "mtime": 1772895221.3920512,
+    "ast_hash": "0ad6131fe65a2f16293ca9848c1273d1",
+    "semantic_hash": "0ad6131fe65a2f16293ca9848c1273d1"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src\\screens\\UnlockScreen.tsx": {
+    "mtime": 1781005778.8678074,
+    "ast_hash": "ca27a82207f469f7c32273e1fbdac515",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\build.rs": {
+    "mtime": 1772895212.2585528,
+    "ast_hash": "3c840aaeb54a9299be1a469bf48a0caf",
+    "semantic_hash": "3c840aaeb54a9299be1a469bf48a0caf"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\tauri.conf.json": {
+    "mtime": 1773340466.6530068,
+    "ast_hash": "87e23f59b90bdc332d9b22c408d57fbf",
+    "semantic_hash": "87e23f59b90bdc332d9b22c408d57fbf"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\capabilities\\default.json": {
+    "mtime": 1772895212.2230382,
+    "ast_hash": "224a0ca5d36280179fe6201739c6b509",
+    "semantic_hash": "224a0ca5d36280179fe6201739c6b509"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\gen\\schemas\\acl-manifests.json": {
+    "mtime": 1772888442.6185062,
+    "ast_hash": "3967f5a85f803bb16118f160234648a3",
+    "semantic_hash": "3967f5a85f803bb16118f160234648a3"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\gen\\schemas\\capabilities.json": {
+    "mtime": 1772892097.4002192,
+    "ast_hash": "c2d99e73e31042b04daaab24bd29bf2a",
+    "semantic_hash": "c2d99e73e31042b04daaab24bd29bf2a"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\gen\\schemas\\desktop-schema.json": {
+    "mtime": 1772888442.6345103,
+    "ast_hash": "5a4c86bf4c211ed552a9333ca2fec919",
+    "semantic_hash": "5a4c86bf4c211ed552a9333ca2fec919"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\gen\\schemas\\windows-schema.json": {
+    "mtime": 1772888442.6345103,
+    "ast_hash": "5a4c86bf4c211ed552a9333ca2fec919",
+    "semantic_hash": "5a4c86bf4c211ed552a9333ca2fec919"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\src\\commands.rs": {
+    "mtime": 1781618314.4197185,
+    "ast_hash": "60044f42f2eb11530b4749dac8e8652e",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\src\\lib.rs": {
+    "mtime": 1781618159.43895,
+    "ast_hash": "59e93e31775e5de4a36a9f679069bc38",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\src\\main.rs": {
+    "mtime": 1772887723.7473383,
+    "ast_hash": "a7d92f0c4d5d2f321362d70977900ab4",
+    "semantic_hash": "a7d92f0c4d5d2f321362d70977900ab4"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\src\\state.rs": {
+    "mtime": 1774634644.6512873,
+    "ast_hash": "1771a16e364b60521a37a255c5ba1816",
+    "semantic_hash": "1771a16e364b60521a37a255c5ba1816"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\examples\\bench_test.rs": {
+    "mtime": 1774637363.8503103,
+    "ast_hash": "b048d9e21bcbc3c84d1724d0f2ae8c1b",
+    "semantic_hash": "b048d9e21bcbc3c84d1724d0f2ae8c1b"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\block_device.rs": {
+    "mtime": 1781623512.7900372,
+    "ast_hash": "19f1dcfc87a917b0b1ea7ef80473c745",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\lib.rs": {
+    "mtime": 1772895224.3314483,
+    "ast_hash": "1d9ceb4e42333716d192c02d2aa0bb45",
+    "semantic_hash": "1d9ceb4e42333716d192c02d2aa0bb45"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\main.rs": {
+    "mtime": 1772895224.3314483,
+    "ast_hash": "b31e396bc0c7d5c09b49181bb0ddd276",
+    "semantic_hash": "b31e396bc0c7d5c09b49181bb0ddd276"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\cli\\commands.rs": {
+    "mtime": 1781624340.8221936,
+    "ast_hash": "48656ec64cd84aebcb4e2e44e8bb8ca5",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\cli\\mod.rs": {
+    "mtime": 1781624134.574821,
+    "ast_hash": "8cfdfb6e49f6de50661d92fe93f298fc",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\crypto\\header.rs": {
+    "mtime": 1781624308.5049992,
+    "ast_hash": "11bdf4e8a2e352c34ebc9c8986fa2c61",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\crypto\\key.rs": {
+    "mtime": 1781623508.543599,
+    "ast_hash": "297d9a8bd66b174494480ce441ed7e2f",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\crypto\\mod.rs": {
+    "mtime": 1781624308.3263407,
+    "ast_hash": "7aa4cfbb0299e312c4cb88cf0d1005c8",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\crypto\\xts.rs": {
+    "mtime": 1780887919.101895,
+    "ast_hash": "804bedbd5cc61c17e1c653f12e7b73eb",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\fuse\\helpers.rs": {
+    "mtime": 1781009866.7903352,
+    "ast_hash": "4f513c8dcb3a021b7ea1691465ef3a63",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\fuse\\mod.rs": {
+    "mtime": 1773592705.4654422,
+    "ast_hash": "22685f4a586d3af9411c8efb240fdae0",
+    "semantic_hash": "22685f4a586d3af9411c8efb240fdae0"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\fuse\\mount.rs": {
+    "mtime": 1773592776.0347934,
+    "ast_hash": "2bdb0b49b41244a1ca3efdc1bdb36e92",
+    "semantic_hash": "2bdb0b49b41244a1ca3efdc1bdb36e92"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\alloc.rs": {
+    "mtime": 1774809297.0329177,
+    "ast_hash": "2282595fa8dd0dc3fe6ee09608dea30a",
+    "semantic_hash": "2282595fa8dd0dc3fe6ee09608dea30a"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\bitmap.rs": {
+    "mtime": 1774809297.0316913,
+    "ast_hash": "2807490838b91531493d8e69a3ba94c9",
+    "semantic_hash": "2807490838b91531493d8e69a3ba94c9"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\cache.rs": {
+    "mtime": 1773587504.614663,
+    "ast_hash": "a8a0323efe885c0ee8e1d57937def4d0",
+    "semantic_hash": "a8a0323efe885c0ee8e1d57937def4d0"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\delayed_alloc.rs": {
+    "mtime": 1774809297.0329177,
+    "ast_hash": "7c31ad4088ddc9e9f75d34c98bbbc305",
+    "semantic_hash": "7c31ad4088ddc9e9f75d34c98bbbc305"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\dir.rs": {
+    "mtime": 1781620847.1582525,
+    "ast_hash": "2ba8cac8c2d6d0bef915132a6df7a1fa",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\extent.rs": {
+    "mtime": 1781620133.3180206,
+    "ast_hash": "ff606da437a92f0f3bb8cbc2c40e5ff1",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\file_io.rs": {
+    "mtime": 1781620847.2309327,
+    "ast_hash": "ae1fd12f95542523120c5c75b014f6a2",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\group.rs": {
+    "mtime": 1781009844.0250497,
+    "ast_hash": "db64f3b8e87e2698ec8c15f08cfc07ff",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\htree.rs": {
+    "mtime": 1781622297.181401,
+    "ast_hash": "bb3802964130f5f3d2a02987c629f5c0",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\inode.rs": {
+    "mtime": 1773556667.0074477,
+    "ast_hash": "f9e4df19cb3ec18be0404232a25fcf2d",
+    "semantic_hash": "f9e4df19cb3ec18be0404232a25fcf2d"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\journal.rs": {
+    "mtime": 1774809297.03392,
+    "ast_hash": "8d58a9a8c54192844385c5b4b9b62db7",
+    "semantic_hash": "8d58a9a8c54192844385c5b4b9b62db7"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\lock.rs": {
+    "mtime": 1773572086.3128889,
+    "ast_hash": "48e5d83af9f256c92e274ee336674830",
+    "semantic_hash": "48e5d83af9f256c92e274ee336674830"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\mod.rs": {
+    "mtime": 1781622161.133059,
+    "ast_hash": "e59b96eed7125308e798b77298d4ecd2",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\path.rs": {
+    "mtime": 1773574608.2016907,
+    "ast_hash": "2d63eb30efb19eca820d17303c7bde0c",
+    "semantic_hash": "2d63eb30efb19eca820d17303c7bde0c"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\superblock.rs": {
+    "mtime": 1774809297.0261736,
+    "ast_hash": "b0714fccf91480117c65c5a77d5a019f",
+    "semantic_hash": "b0714fccf91480117c65c5a77d5a019f"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\volume\\xattr.rs": {
+    "mtime": 1774809297.03392,
+    "ast_hash": "ce866780874d315195a8c6661995755f",
+    "semantic_hash": "ce866780874d315195a8c6661995755f"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\tests\\integration_mount.rs": {
+    "mtime": 1773582646.074864,
+    "ast_hash": "3b54157f0d7e4cc5308f861e999e0f43",
+    "semantic_hash": "3b54157f0d7e4cc5308f861e999e0f43"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\README.md": {
+    "mtime": 1774809188.799284,
+    "ast_hash": "a25f44e3859731352881e3939652a4c8",
+    "semantic_hash": "a25f44e3859731352881e3939652a4c8"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\.agents\\rules\\cfsprojectguidelines.md": {
+    "mtime": 1777905638.441197,
+    "ast_hash": "fd0574d1b9c4be871d8b94d9915c0d63",
+    "semantic_hash": "fd0574d1b9c4be871d8b94d9915c0d63"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\.agents\\rules\\graphify.md": {
+    "mtime": 1779643872.7208836,
+    "ast_hash": "a0e4d192b9e2e17256124dbfc8e24e6a",
+    "semantic_hash": "a0e4d192b9e2e17256124dbfc8e24e6a"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\.agents\\workflows\\graphify.md": {
+    "mtime": 1779643872.7290146,
+    "ast_hash": "84de69efd46ab0b8430393bd4188f8f2",
+    "semantic_hash": "84de69efd46ab0b8430393bd4188f8f2"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\index.html": {
+    "mtime": 1772895224.3324485,
+    "ast_hash": "0c23a2df92c2634a09a25ebff4e2b90c",
+    "semantic_hash": "0c23a2df92c2634a09a25ebff4e2b90c"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\README.md": {
+    "mtime": 1772887723.7483394,
+    "ast_hash": "070911911a8e1ac32796e78bff4a30c0",
+    "semantic_hash": "070911911a8e1ac32796e78bff4a30c0"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\cfs_analysis_and_comparison.md": {
+    "mtime": 1777906977.2174354,
+    "ast_hash": "ab5005cd093dd3f43ff499254020c805",
+    "semantic_hash": "ab5005cd093dd3f43ff499254020c805"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase-ui-plan.md": {
+    "mtime": 1772895212.2665522,
+    "ast_hash": "60a449c827a667d8920e71a2d9cec204",
+    "semantic_hash": "60a449c827a667d8920e71a2d9cec204"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase10A-plan.md": {
+    "mtime": 1773540776.4010282,
+    "ast_hash": "eff58331adf9a20f37c324e1003422ee",
+    "semantic_hash": "eff58331adf9a20f37c324e1003422ee"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase10B-plan.md": {
+    "mtime": 1773544391.8656282,
+    "ast_hash": "ea2c12c8421b95fcb977cfa69ccd3703",
+    "semantic_hash": "ea2c12c8421b95fcb977cfa69ccd3703"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase10C-plan.md": {
+    "mtime": 1773544390.1574726,
+    "ast_hash": "457941f0671ce33cc8952e15bb365937",
+    "semantic_hash": "457941f0671ce33cc8952e15bb365937"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase10D-plan.md": {
+    "mtime": 1773510993.3913572,
+    "ast_hash": "d76c81da5524bb0b2b9e179364769712",
+    "semantic_hash": "d76c81da5524bb0b2b9e179364769712"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase10E-plan.md": {
+    "mtime": 1773555930.2999473,
+    "ast_hash": "62431a1cfff427e13033aa1855e19a26",
+    "semantic_hash": "62431a1cfff427e13033aa1855e19a26"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase10F-plan.md": {
+    "mtime": 1773513642.968264,
+    "ast_hash": "a03c10798960c172bcb96c1c31c286ea",
+    "semantic_hash": "a03c10798960c172bcb96c1c31c286ea"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase10G-plan.md": {
+    "mtime": 1773514164.3659067,
+    "ast_hash": "dc9b723680f7f8e8f4eaf33af445e100",
+    "semantic_hash": "dc9b723680f7f8e8f4eaf33af445e100"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase10H-plan.md": {
+    "mtime": 1773514476.4483514,
+    "ast_hash": "908f4493a29116d2cb9bb637dcdf4e3d",
+    "semantic_hash": "908f4493a29116d2cb9bb637dcdf4e3d"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase10I-plan.md": {
+    "mtime": 1773529891.009973,
+    "ast_hash": "62b7d80662b1e6af3fcac778feed7f1c",
+    "semantic_hash": "62b7d80662b1e6af3fcac778feed7f1c"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase10J-plan.md": {
+    "mtime": 1773530177.392487,
+    "ast_hash": "3ac2b496f17e6d6cedf28e87b64fdf39",
+    "semantic_hash": "3ac2b496f17e6d6cedf28e87b64fdf39"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase2-plan.md": {
+    "mtime": 1772819395.4652429,
+    "ast_hash": "53ba1b0ea12ce401fab5ab6d382303c0",
+    "semantic_hash": "53ba1b0ea12ce401fab5ab6d382303c0"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase3-plan.md": {
+    "mtime": 1772819877.8367522,
+    "ast_hash": "44cfd2f57354ec0cff0673c481a73cf5",
+    "semantic_hash": "44cfd2f57354ec0cff0673c481a73cf5"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase4-plan.md": {
+    "mtime": 1772823683.6217327,
+    "ast_hash": "dfb0407aab3d00a11ac022474793239d",
+    "semantic_hash": "dfb0407aab3d00a11ac022474793239d"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase5-plan.md": {
+    "mtime": 1772884587.4525268,
+    "ast_hash": "99ce6773a08ff88f45e6706218238ae7",
+    "semantic_hash": "99ce6773a08ff88f45e6706218238ae7"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\phase6-plan.md": {
+    "mtime": 1772859542.6262214,
+    "ast_hash": "6cf7f7ca2cea239eb77f4124accf7cd9",
+    "semantic_hash": "6cf7f7ca2cea239eb77f4124accf7cd9"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\Sample-features.md": {
+    "mtime": 1773536350.417718,
+    "ast_hash": "890f29d74796ac285a37509b9ef3e267",
+    "semantic_hash": "890f29d74796ac285a37509b9ef3e267"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\upgrade-plan.md": {
+    "mtime": 1773335135.2314034,
+    "ast_hash": "88eb3d3402d272b552447af9af60778e",
+    "semantic_hash": "88eb3d3402d272b552447af9af60778e"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\volume_finding.md": {
+    "mtime": 1777907019.422333,
+    "ast_hash": "a37d1dacda87db1a53511af3a06c9af1",
+    "semantic_hash": "a37d1dacda87db1a53511af3a06c9af1"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\public\\tauri.svg": {
+    "mtime": 1772887723.7557535,
+    "ast_hash": "f0966ff85db99f2d00771f92d18c9e7f",
+    "semantic_hash": "f0966ff85db99f2d00771f92d18c9e7f"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\public\\vite.svg": {
+    "mtime": 1772887723.7557535,
+    "ast_hash": "8e3a10e157f75ada21ab742c022d5430",
+    "semantic_hash": "8e3a10e157f75ada21ab742c022d5430"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\128x128.png": {
+    "mtime": 1772887723.7357311,
+    "ast_hash": "fdd248e915476e6212afcb096c330992",
+    "semantic_hash": "fdd248e915476e6212afcb096c330992"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\128x128@2x.png": {
+    "mtime": 1772887723.7367263,
+    "ast_hash": "fd32cf41af4c52d279b92e9c61676130",
+    "semantic_hash": "fd32cf41af4c52d279b92e9c61676130"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\32x32.png": {
+    "mtime": 1772887723.7367263,
+    "ast_hash": "1344a8f2569a67c695807140fb49cf10",
+    "semantic_hash": "1344a8f2569a67c695807140fb49cf10"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\icon.png": {
+    "mtime": 1772887723.746291,
+    "ast_hash": "3fa4420986811b429d7f1654da77ac3b",
+    "semantic_hash": "3fa4420986811b429d7f1654da77ac3b"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\Square107x107Logo.png": {
+    "mtime": 1772887723.7382183,
+    "ast_hash": "24754965fb63f23a0fad45db0ef2554b",
+    "semantic_hash": "24754965fb63f23a0fad45db0ef2554b"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\Square142x142Logo.png": {
+    "mtime": 1772887723.7382183,
+    "ast_hash": "55d92879c6bd61fc7e79a84e1dcc51f6",
+    "semantic_hash": "55d92879c6bd61fc7e79a84e1dcc51f6"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\Square150x150Logo.png": {
+    "mtime": 1772887723.7392187,
+    "ast_hash": "6e41a89b0a2b484f3e7f1b3a5db65730",
+    "semantic_hash": "6e41a89b0a2b484f3e7f1b3a5db65730"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\Square284x284Logo.png": {
+    "mtime": 1772887723.7392187,
+    "ast_hash": "b5f57838809a4d93eed8ef656ce7c2c4",
+    "semantic_hash": "b5f57838809a4d93eed8ef656ce7c2c4"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\Square30x30Logo.png": {
+    "mtime": 1772887723.7403576,
+    "ast_hash": "7a18f38b895070303fda351bd8ae757d",
+    "semantic_hash": "7a18f38b895070303fda351bd8ae757d"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\Square310x310Logo.png": {
+    "mtime": 1772887723.7403576,
+    "ast_hash": "eeabbd0c2b13960e089e468c20f99e51",
+    "semantic_hash": "eeabbd0c2b13960e089e468c20f99e51"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\Square44x44Logo.png": {
+    "mtime": 1772887723.741784,
+    "ast_hash": "42c67a38757b409cec4b6eb0c25c714c",
+    "semantic_hash": "42c67a38757b409cec4b6eb0c25c714c"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\Square71x71Logo.png": {
+    "mtime": 1772887723.741784,
+    "ast_hash": "0670843e2fc39a0e53817a47b2b3399d",
+    "semantic_hash": "0670843e2fc39a0e53817a47b2b3399d"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\Square89x89Logo.png": {
+    "mtime": 1772887723.7427852,
+    "ast_hash": "2bfa099bf584686f0dd98cfafb10bda3",
+    "semantic_hash": "2bfa099bf584686f0dd98cfafb10bda3"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\cfs-ui\\src-tauri\\icons\\StoreLogo.png": {
+    "mtime": 1772887723.7427852,
+    "ast_hash": "02859e2326344ae7c9559f1af0abba34",
+    "semantic_hash": "02859e2326344ae7c9559f1af0abba34"
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\crypto\\secure_mem.rs": {
+    "mtime": 1780887982.98987,
+    "ast_hash": "f7699ca6cb7bba84e15e66dc79b3e885",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\comparison-plan.md": {
+    "mtime": 1779672567.3552945,
+    "ast_hash": "57458b174062dd0676f8c0be0e9fb590",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\comparison-research-notes.md": {
+    "mtime": 1779672662.4878373,
+    "ast_hash": "6c69eca7508bf4c5cdf1aea1a413bd69",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\docs\\security-performance-improvement-plan.md": {
+    "mtime": 1779784201.390384,
+    "ast_hash": "92808c2fd0e3bf4b1812f3e36a49b756",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\crypto\\slot.rs": {
+    "mtime": 1781623295.1127634,
+    "ast_hash": "5fa326a26cb37d26e903986f3ed8e689",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\src\\crypto\\aead.rs": {
+    "mtime": 1781616782.7753222,
+    "ast_hash": "1b504b596cf2098a0e1c7d760f9658d0",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\tests\\manual_verify.rs": {
+    "mtime": 1781623901.4756825,
+    "ast_hash": "0009f08ecc7680bacc5e1abf56f16f6e",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\test_cli.ps1": {
+    "mtime": 1781624045.76189,
+    "ast_hash": "3d8066f10f33d2c2c1c859fcb7c61cb2",
+    "semantic_hash": ""
+  },
+  "C:\\Users\\ekans\\Desktop\\Btech\\CFS\\cfs-io\\QA_REPORT.md": {
+    "mtime": 1781624066.7632823,
+    "ast_hash": "7c6d3b70b7491665c40ab31543ca3e75",
+    "semantic_hash": ""
+  }
+}

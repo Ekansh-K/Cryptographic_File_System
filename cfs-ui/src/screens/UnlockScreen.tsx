@@ -23,6 +23,7 @@ export default function UnlockScreen() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
+
   // Existing volumes from default directory
   const [volumeFiles, setVolumeFiles] = useState<VolumeFileDto[]>([]);
   const [volumeFilesLoading, setVolumeFilesLoading] = useState(false);
@@ -144,6 +145,8 @@ export default function UnlockScreen() {
       setPartPassword("");
     }
   }
+
+
 
   function handleCreated() {
     setShowCreate(false);
@@ -289,6 +292,7 @@ export default function UnlockScreen() {
               >
                 {loading ? "Unlocking..." : "Unlock Volume"}
               </button>
+
             </form>
 
             {/* Divider */}

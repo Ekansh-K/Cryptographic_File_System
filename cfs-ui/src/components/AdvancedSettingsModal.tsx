@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { benchmarkKdf, benchmarkFormatIo, cancelBenchmark } from "../commands";
-import type { IoBenchmarkResult, FormatOptionsDto } from "../types";
+import { benchmarkKdf, benchmarkFormatIo, cancelBenchmark, benchmarkCryptoSpeed } from "../commands";
+import type { IoBenchmarkResult, FormatOptionsDto, CryptoBenchmarkResult } from "../types";
 
 // ─── Preset definitions (must mirror Rust FormatOptions presets) ────────────
 interface PresetValues {
@@ -68,9 +68,12 @@ interface Props {
   setFormatDefaultPermissions: (v: number) => void;
   formatErrorBehavior: string;
   setFormatErrorBehavior: (v: string) => void;
+  // ── Security (AEAD) ─────────────────────────────────────────────────────
+  formatEnableAead: boolean;
+  setFormatEnableAead: (v: boolean) => void;
 }
 
-const TABS = ["Key Derivation", "Volume Format"] as const;
+const TABS = ["Key Derivation", "Volume Format", "Security"] as const;
 type Tab = (typeof TABS)[number];
 
 const PBKDF2_PRESETS: { label: string; value: number }[] = [
@@ -124,6 +127,8 @@ export default function AdvancedSettingsModal({
   setFormatDefaultPermissions,
   formatErrorBehavior,
   setFormatErrorBehavior,
+  formatEnableAead,
+  setFormatEnableAead,
 }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("Key Derivation");
   const [benchmarkMs, setBenchmarkMs] = useState<number | null>(null);
@@ -161,6 +166,25 @@ export default function AdvancedSettingsModal({
   // Averaging
   const [useAvg, setUseAvg] = useState(true);
   const [avgRuns, setAvgRuns] = useState(5);
+
+  // ── Crypto benchmark state ────────────────────────────────────────────────
+  type CryptoBenchState = "idle" | "running" | "done" | "error";
+  const [cryptoBenchState, setCryptoBenchState] = useState<CryptoBenchState>("idle");
+  const [cryptoBenchResult, setCryptoBenchResult] = useState<CryptoBenchmarkResult | null>(null);
+  const [cryptoBenchError, setCryptoBenchError] = useState<string | null>(null);
+
+  async function handleCryptoBenchmark() {
+    setCryptoBenchState("running");
+    setCryptoBenchError(null);
+    try {
+      const res = await benchmarkCryptoSpeed(256); // 256 MiB
+      setCryptoBenchResult(res);
+      setCryptoBenchState("done");
+    } catch (e) {
+      setCryptoBenchError(String(e));
+      setCryptoBenchState("error");
+    }
+  }
 
   function fmtSpeed(mbps: number): string {
     if (mbps >= 1024) return `${(mbps / 1024).toFixed(2)} GiB/s`;
@@ -467,7 +491,7 @@ export default function AdvancedSettingsModal({
                     <div className="flex gap-2">
                       {[
                         { label: "Fast", memory: 16, time: 1, p: 2 },
-                        { label: "Balanced", memory: 32, time: 2, p: 2 },
+                        { label: "Balanced", memory: 64, time: 3, p: 2 },
                         { label: "Maximum", memory: 256, time: 4, p: 4 },
                       ].map((preset) => {
                         const active =
@@ -1075,6 +1099,145 @@ export default function AdvancedSettingsModal({
                   Sync time is measured separately. Multi-run averaging reuses a single volume; later runs
                   benefit from warm OS page cache.
                 </p>
+              </div>
+            </>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════
+              TAB: Security
+              ═══════════════════════════════════════════════════════════════ */}
+          {activeTab === "Security" && (
+            <>
+              {/* ── Plausible Deniability card ── */}
+              <div className="border border-border p-4 bg-bg relative">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-[10px] px-2 py-0.5 border border-border text-text-muted uppercase tracking-wider bg-surface">
+                        Always On
+                      </span>
+                      <span className="text-[13px] text-text-bright font-bold">Plausible Deniability</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: "var(--color-text-muted)", lineHeight: 1.6, marginBottom: 12 }}>
+                      CFS v3 encrypts the entire header block — no magic bytes are visible at offset 0.
+                      An attacker cannot confirm the file is an encrypted volume without the password.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Data Integrity (AEAD) toggle card ── */}
+              <div className={`border ${formatEnableAead ? "border-text-muted" : "border-border"} p-4 bg-bg transition-colors duration-200 mt-4`}>
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      {/* Toggle switch */}
+                      <label className="relative inline-block w-9 h-5 cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={formatEnableAead}
+                          onChange={(e) => setFormatEnableAead(e.target.checked)}
+                          className="opacity-0 w-0 h-0 absolute"
+                        />
+                        <span className={`absolute inset-0 rounded-full transition-colors duration-200 ${formatEnableAead ? "bg-text" : "bg-border"}`} />
+                        <span className={`absolute top-[3px] w-3.5 h-3.5 rounded-full transition-all duration-200 ${formatEnableAead ? "left-[19px] bg-bg" : "left-[3px] bg-text-muted"}`} />
+                      </label>
+                      <span className="text-[13px] text-text-bright font-bold">AES-256-GCM Data Integrity (per block)</span>
+                    </div>
+                    <p className={`text-xs mb-1.5 transition-colors duration-200 ${formatEnableAead ? "text-text" : "text-text-muted"}`}>
+                      {formatEnableAead
+                        ? "Enabled — ≈0.39% storage overhead. Detects any bit-flip or tampering on every 4096-byte block."
+                        : "Disabled — 0% overhead. Metadata integrity only (CRC32 + HMAC)."}
+                    </p>
+                    <p style={{ fontSize: 12, color: "var(--color-text-muted)", lineHeight: 1.6, marginBottom: 12 }}>
+                      Each block is authenticated with a 16-byte AES-256-GCM tag stored in a separate Tag Region.
+                      Comparable to LUKS2+dm-integrity.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Crypto Benchmark ── */}
+              <div className="border border-border p-4 bg-bg mt-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] text-text-bright font-bold">End-to-End AEAD Overhead Benchmark</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleCryptoBenchmark}
+                        disabled={cryptoBenchState === "running"}
+                        className="px-4 py-1.5 text-xs border border-border bg-surface-active text-text-bright hover:border-border-focus disabled:opacity-40"
+                      >
+                        {cryptoBenchState === "running" ? "Running..." : "⏱ Run Benchmark (256 MiB)"}
+                      </button>
+                    </div>
+                    <p style={{ fontSize: 12, color: "var(--color-text-muted)", lineHeight: 1.6, marginBottom: 12 }}>
+                      Test the raw encryption throughput of XTS alone vs XTS + AEAD data integrity. 
+                      This shows the expected end-to-end performance penalty of enabling data integrity.
+                    </p>
+
+                    {cryptoBenchError && <div className="text-error text-xs mb-3">{cryptoBenchError}</div>}
+
+                    {cryptoBenchResult && (
+                      <div className="border border-border">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-border bg-surface">
+                              <th className="text-left px-3 py-1.5 text-text-muted font-normal">Mode</th>
+                              <th className="text-right px-3 py-1.5 text-text-muted font-normal">Encrypt</th>
+                              <th className="text-right px-3 py-1.5 text-text-muted font-normal">Decrypt</th>
+                              <th className="text-right px-3 py-1.5 text-text-muted font-normal">Overhead</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr className="border-b border-border">
+                              <td className="px-3 py-1.5 text-text">AES-256-XTS</td>
+                              <td className="px-3 py-1.5 text-right font-mono text-text">{fmtSpeed(cryptoBenchResult.xts_encrypt_mbps)}</td>
+                              <td className="px-3 py-1.5 text-right font-mono text-text">{fmtSpeed(cryptoBenchResult.xts_decrypt_mbps)}</td>
+                              <td className="px-3 py-1.5 text-right font-mono text-text-muted">Baseline</td>
+                            </tr>
+                            <tr>
+                              <td className="px-3 py-1.5 text-success">AES-256-XTS + AEAD</td>
+                              <td className="px-3 py-1.5 text-right font-mono text-success">{fmtSpeed(cryptoBenchResult.xts_aead_encrypt_mbps)}</td>
+                              <td className="px-3 py-1.5 text-right font-mono text-success">{fmtSpeed(cryptoBenchResult.xts_aead_decrypt_mbps)}</td>
+                              <td className="px-3 py-1.5 text-right font-mono text-error">-{cryptoBenchResult.aead_overhead_encrypt_pct.toFixed(1)}%</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Key Slots info card ── */}
+              <div className="border border-border p-4 bg-bg mt-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-[10px] px-2 py-0.5 border border-border text-text-muted uppercase tracking-wider bg-surface">
+                        Info
+                      </span>
+                      <span className="text-[13px] text-text-bright font-bold">8 Key Slots Available</span>
+                    </div>
+                    <p className="text-xs text-text-muted leading-relaxed mb-3">
+                      Up to 8 independent passwords can unlock the same volume.
+                      You can manage key slots after creating the volume from the Unlock screen.
+                    </p>
+                    {/* Slot visualization */}
+                    <div className="flex gap-1.5 mb-3">
+                      {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                        <div key={i} className={`w-9 h-9 border flex flex-col items-center justify-center ${i === 0 ? "border-text-muted bg-surface-active" : "border-border bg-surface"}`}>
+                          <span className={`text-[10px] ${i === 0 ? "text-text" : "text-text-muted"}`}>{i}</span>
+                          <span className={`text-[8px] mt-[1px] ${i === 0 ? "text-text" : "text-text-muted"}`}>{i === 0 ? "●" : "○"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             </>
           )}

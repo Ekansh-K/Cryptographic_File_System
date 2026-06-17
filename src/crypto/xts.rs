@@ -1,6 +1,7 @@
 use aes::cipher::generic_array::GenericArray;
 use aes::cipher::KeyInit;
 use aes::Aes256;
+use rayon::prelude::*;
 use xts_mode::{get_tweak_default, Xts128};
 
 /// AES-256-XTS cipher wrapper.
@@ -11,6 +12,12 @@ pub struct XtsCipher {
     xts: Xts128<Aes256>,
     encryption_unit: u32,
 }
+
+// SAFETY: `Xts128<Aes256>` holds only immutable AES key schedules computed at
+// construction time. `encrypt_sector` / `decrypt_sector` take `&self` and
+// perform no interior mutation, so sharing `XtsCipher` across Rayon threads is
+// safe. There is no interior mutability (no Cell, Mutex, etc.).
+unsafe impl Sync for XtsCipher {}
 
 impl Drop for XtsCipher {
     fn drop(&mut self) {
@@ -66,6 +73,56 @@ impl XtsCipher {
         let eu = self.encryption_unit as usize;
         self.xts
             .decrypt_area(data, eu, first_block_index as u128, get_tweak_default);
+    }
+
+    /// Encrypt multiple contiguous blocks in parallel (Rayon).
+    ///
+    /// Falls back to serial path for fewer than 4 blocks, avoiding thread
+    /// spawn overhead for small I/O operations.
+    pub fn encrypt_blocks_parallel(&self, first_block_index: u64, data: &mut [u8]) {
+        let eu = self.encryption_unit as usize;
+        let num_blocks = data.len() / eu;
+        if num_blocks < 4 {
+            return self.encrypt_blocks(first_block_index, data);
+        }
+        data.par_chunks_mut(eu)
+            .enumerate()
+            .for_each(|(i, chunk)| {
+                let tweak = get_tweak_default(first_block_index as u128 + i as u128);
+                self.xts.encrypt_sector(chunk, tweak);
+            });
+    }
+
+    /// Decrypt multiple contiguous blocks in parallel (Rayon).
+    ///
+    /// Falls back to serial path for fewer than 4 blocks.
+    pub fn decrypt_blocks_parallel(&self, first_block_index: u64, data: &mut [u8]) {
+        let eu = self.encryption_unit as usize;
+        let num_blocks = data.len() / eu;
+        if num_blocks < 4 {
+            return self.decrypt_blocks(first_block_index, data);
+        }
+        data.par_chunks_mut(eu)
+            .enumerate()
+            .for_each(|(i, chunk)| {
+                let tweak = get_tweak_default(first_block_index as u128 + i as u128);
+                self.xts.decrypt_sector(chunk, tweak);
+            });
+    }
+}
+
+/// Returns `true` if the CPU supports AES-NI hardware acceleration.
+///
+/// On x86-64 this checks CPUID at runtime using the standard library's
+/// `is_x86_feature_detected!` macro. On other targets it always returns `false`.
+pub fn aes_ni_available() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        std::is_x86_feature_detected!("aes")
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        false
     }
 }
 
@@ -173,5 +230,86 @@ mod tests {
         cipher_b.decrypt_block(0, &mut buf);
 
         assert_ne!(buf, original, "decrypting with wrong key must not produce original data");
+    }
+
+    #[test]
+    fn test_parallel_encrypt_matches_serial() {
+        let key = random_key();
+        let cipher = XtsCipher::new(&key, 4096);
+
+        let mut original = vec![0u8; 4096 * 8];
+        OsRng.fill_bytes(&mut original);
+
+        let mut serial = original.clone();
+        let mut parallel = original.clone();
+
+        cipher.encrypt_blocks(0, &mut serial);
+        cipher.encrypt_blocks_parallel(0, &mut parallel);
+
+        assert_eq!(
+            serial, parallel,
+            "parallel encrypt must produce identical ciphertext to serial"
+        );
+    }
+
+    #[test]
+    fn test_parallel_decrypt_matches_serial() {
+        let key = random_key();
+        let cipher = XtsCipher::new(&key, 4096);
+
+        // Encrypt first (serially), then compare decryption methods
+        let mut ciphertext = vec![0u8; 4096 * 8];
+        OsRng.fill_bytes(&mut ciphertext);
+
+        let mut serial_dec = ciphertext.clone();
+        let mut parallel_dec = ciphertext.clone();
+
+        cipher.decrypt_blocks(0, &mut serial_dec);
+        cipher.decrypt_blocks_parallel(0, &mut parallel_dec);
+
+        assert_eq!(
+            serial_dec, parallel_dec,
+            "parallel decrypt must produce identical output to serial"
+        );
+    }
+
+    #[test]
+    fn test_parallel_roundtrip() {
+        let key = random_key();
+        let cipher = XtsCipher::new(&key, 4096);
+
+        let mut data = vec![0u8; 4096 * 8];
+        OsRng.fill_bytes(&mut data);
+        let original = data.clone();
+
+        cipher.encrypt_blocks_parallel(0, &mut data);
+        assert_ne!(data, original, "encrypted data must differ from plaintext");
+
+        cipher.decrypt_blocks_parallel(0, &mut data);
+        assert_eq!(data, original, "roundtrip must recover original plaintext");
+    }
+
+    #[test]
+    fn test_parallel_small_falls_back_to_serial() {
+        // For < 4 blocks the parallel methods fall back to serial.
+        // Verify correctness is maintained.
+        let key = random_key();
+        let cipher = XtsCipher::new(&key, 4096);
+
+        let mut data = vec![0u8; 4096 * 2]; // only 2 blocks
+        OsRng.fill_bytes(&mut data);
+        let original = data.clone();
+
+        cipher.encrypt_blocks_parallel(0, &mut data);
+        cipher.decrypt_blocks_parallel(0, &mut data);
+        assert_eq!(data, original);
+    }
+
+    #[test]
+    fn test_aes_ni_available_smoke() {
+        // Just ensure the call doesn't panic and returns a bool.
+        let result = aes_ni_available();
+        // Result depends on hardware — we can't assert true/false.
+        let _ = result;
     }
 }

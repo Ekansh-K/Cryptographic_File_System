@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+﻿use anyhow::{bail, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::block_device::CFSBlockDevice;
@@ -704,7 +704,7 @@ mod tests {
             let mut bm = vol.bitmap_lock();
             let mut dg = vol.dev();
             let mut root = vol.inode_table.read_inode(&mut **dg, ROOT_INODE).unwrap();
-            let ds = vol.data_start;
+            let ds = vol._data_start;
             let mut alloc = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
             add_dir_entry(
                 &mut **dg, &mut root, &mut alloc,
@@ -733,7 +733,7 @@ mod tests {
             let mut bm = vol.bitmap_lock();
             let mut dg = vol.dev();
             let mut root = vol.inode_table.read_inode(&mut **dg, ROOT_INODE).unwrap();
-            let ds = vol.data_start;
+            let ds = vol._data_start;
             let mut alloc = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
             add_dir_entry(
                 &mut **dg, &mut root, &mut alloc,
@@ -777,7 +777,7 @@ mod tests {
             let mut bm = vol.bitmap_lock();
             let mut dg = vol.dev();
             let mut root = vol.inode_table.read_inode(&mut **dg, ROOT_INODE).unwrap();
-            let ds = vol.data_start;
+            let ds = vol._data_start;
             let mut alloc = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
             add_dir_entry(
                 &mut **dg, &mut root, &mut alloc,
@@ -816,7 +816,7 @@ mod tests {
             let mut bm = vol.bitmap_lock();
             let mut dg = vol.dev();
             let mut root = vol.inode_table.read_inode(&mut **dg, ROOT_INODE).unwrap();
-            let ds = vol.data_start;
+            let ds = vol._data_start;
             let mut alloc = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
             add_dir_entry(
                 &mut **dg, &mut root, &mut alloc,
@@ -844,7 +844,7 @@ mod tests {
             let mut bm = vol.bitmap_lock();
             let mut dg = vol.dev();
             let mut root = vol.inode_table.read_inode(&mut **dg, ROOT_INODE).unwrap();
-            let ds = vol.data_start;
+            let ds = vol._data_start;
             let mut alloc = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
             add_dir_entry(
                 &mut **dg, &mut root, &mut alloc,
@@ -871,7 +871,7 @@ mod tests {
             let mut bm = vol.bitmap_lock();
             let mut dg = vol.dev();
             let mut root = vol.inode_table.read_inode(&mut **dg, ROOT_INODE).unwrap();
-            let ds = vol.data_start;
+            let ds = vol._data_start;
             let mut alloc = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
             add_dir_entry(
                 &mut **dg, &mut root, &mut alloc,
@@ -893,7 +893,7 @@ mod tests {
             let mut bm = vol.bitmap_lock();
             let mut dg = vol.dev();
             let mut root = vol.inode_table.read_inode(&mut **dg, ROOT_INODE).unwrap();
-            let ds = vol.data_start;
+            let ds = vol._data_start;
             let mut alloc = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
             add_dir_entry(
                 &mut **dg, &mut root, &mut alloc,

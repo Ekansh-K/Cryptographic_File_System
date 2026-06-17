@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 pub mod block_device;
 pub mod volume;
 pub mod crypto;

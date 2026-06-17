@@ -1,5 +1,5 @@
 use crate::volume::inode::Inode;
-use crate::volume::{INODE_DIR, INODE_FILE, INODE_SYMLINK};
+use crate::volume::{INODE_DIR, INODE_SYMLINK};
 use winfsp::filesystem::FileInfo;
 use winfsp::U16CStr;
 
@@ -104,6 +104,7 @@ pub fn fill_file_info(info: &mut FileInfo, inode: &Inode, inode_idx: u32, block_
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::volume::INODE_FILE;
 
     #[test]
     fn test_unix_to_filetime_roundtrip() {

@@ -459,7 +459,7 @@ impl Superblock {
             blocks_per_group: opts.blocks_per_group,
             inodes_per_group: inodes_per_group as u32,
             group_count: group_count as u32,
-            gdt_start: gdt_start,
+            gdt_start,
             gdt_blocks: gdt_blocks as u32,
             desc_size: desc_size as u32,
             reserved_gdt_blocks: reserved_gdt as u32,

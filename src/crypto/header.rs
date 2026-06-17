@@ -1,337 +1,348 @@
+use aes::Aes256;
+use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::NoPadding};
 use anyhow::{bail, Result};
+use pbkdf2::pbkdf2_hmac;
+use sha2::Sha256;
+use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::block_device::CFSBlockDevice;
-use super::key::{
-    compute_hmac, derive_keys_with_params, generate_master_key, generate_salt,
-    verify_hmac, xor_key_wrap, KdfAlgorithm, KdfParams,
-};
+use super::key::{generate_master_key, KdfAlgorithm, KdfParams};
+use super::slot::{CFS_FEATURE_DATA_AEAD, KeySlot, KEY_SLOT_ACTIVE, KEY_SLOT_SIZE, MAX_KEY_SLOTS};
+
+type Aes256CbcEnc = cbc::Encryptor<Aes256>;
+type Aes256CbcDec = cbc::Decryptor<Aes256>;
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 pub const CRYPTO_MAGIC: [u8; 4] = *b"CFSE";
-/// Current header version (always written).
-pub const CRYPTO_VERSION: u32 = 2;
-/// Legacy header version (read-only backward compat).
-pub const CRYPTO_VERSION_V1: u32 = 1;
+pub const CRYPTO_VERSION_V3: u32 = 3;
 pub const DEFAULT_HEADER_BLOCKS: u32 = 1;
-/// v1 meaningful bytes (CRC at offset 152).
-const CRYPTO_HEADER_MEANINGFUL_V1: usize = 156;
-/// v2 meaningful bytes (CRC at offset 160).
-const CRYPTO_HEADER_MEANINGFUL_V2: usize = 164;
+
+const HEADER_SALT_LEN: usize = 60;
+const PAYLOAD_LEN: usize = 4032; // 4096 - 64 salt bytes; must be multiple of 16
+
+// KDF used only for the AES-CBC header-envelope key (fast, 10k iters)
+const HEADER_KDF_ITERS: u32 = 10_000;
+
+// Payload field offsets (inside the decrypted 4032-byte block)
+const OFF_MAGIC: usize = 0;           // 4 bytes
+const OFF_VERSION: usize = 4;         // 4 bytes
+const OFF_HEADER_BLOCKS: usize = 8;   // 4 bytes
+const OFF_EU: usize = 12;             // 4 bytes
+const OFF_KDF_ALGO: usize = 16;       // 4 bytes
+const OFF_NUM_SLOTS: usize = 20;      // 4 bytes
+const OFF_DATA_SALT: usize = 24;      // 64 bytes -> ends at 88
+const OFF_SLOTS: usize = 88;          // 4*144=576 bytes -> ends at 664
+const OFF_FEATURE_FLAGS: usize = 664; // 4 bytes
+const OFF_TAG_START: usize = 668;     // 8 bytes
+const OFF_TAG_BLOCKS: usize = 676;    // 8 bytes
+const OFF_CRC: usize = 684;           // 4 bytes; CRC32 of [0..684)
+const PAYLOAD_MEANINGFUL: usize = 688;
 
 // ---------------------------------------------------------------------------
-// CryptoHeader
+// CryptoHeader v3
 // ---------------------------------------------------------------------------
 
-/// On-disk crypto header — occupies block 0 (4096 bytes).
+/// On-disk crypto header (v3 — fully encrypted, no plaintext magic).
 ///
-/// v1 layout (LE, read-only):
+/// Block 0 layout (4096 bytes):
 /// ```text
-/// 0..4     magic          b"CFSE"
-/// 4..8     version        1
-/// 8..12    header_blocks  1
-/// 12..16   encryption_unit 4096
-/// 16..48   salt           [u8; 32]
-/// 48..52   pbkdf2_iters   ≥300,000
-/// 52..56   _reserved      0
-/// 56..120  encrypted_key  [u8; 64]
-/// 120..152 key_hmac       [u8; 32]
-/// 152..156 header_crc     CRC32 of [0..152)
-/// 156..4096 zero padding
-/// ```
-///
-/// v2 layout (LE, current):
-/// ```text
-/// 0..4     magic              b"CFSE"
-/// 4..8     version            2
-/// 8..12    header_blocks      1
-/// 12..16   encryption_unit    4096
-/// 16..48   salt               [u8; 32]
-/// 48..52   pbkdf2_iters       u32 (0 for Argon2id)
-/// 52..53   kdf_algorithm      u8 (0=PBKDF2, 1=Argon2id)
-/// 53..56   _reserved          [0; 3]
-/// 56..120  encrypted_key      [u8; 64]
-/// 120..152 key_hmac           [u8; 32]
-/// 152..156 argon2_memory_kib  u32 (0 for PBKDF2)
-/// 156..158 argon2_time_cost   u16 (0 for PBKDF2)
-/// 158..160 argon2_parallelism u16 (0 for PBKDF2)
-/// 160..164 header_crc         CRC32 of [0..160)
-/// 164..4096 zero padding
+/// [0..64]     header_salt  — random, plaintext (needed to derive AES-CBC key)
+/// [64..4096]  AES-256-CBC encrypted payload (4032 bytes, NoPadding):
+///   [0..4]    magic "CFSE" (confirms correct password after decryption)
+///   [4..8]    version: 3
+///   [8..12]   header_blocks: 1
+///   [12..16]  encryption_unit: u32
+///   [16..20]  kdf_algorithm: u32
+///   [20..24]  num_active_slots: u32
+///   [24..88]  data_salt: [u8; 64]
+///   [88..664] KeySlot[0..3] (4 × 144 bytes)
+///   [664..668] feature_flags: u32
+///   [668..676] tag_region_start: u64
+///   [676..684] tag_region_blocks: u64
+///   [684..688] payload_crc: CRC32 of [0..684)
+///   [688..4032] zero padding
 /// ```
 #[derive(Clone)]
 pub struct CryptoHeader {
     pub version: u32,
     pub header_blocks: u32,
     pub encryption_unit: u32,
-    pub salt: [u8; 32],
-    pub pbkdf2_iters: u32,
     pub kdf_algorithm: KdfAlgorithm,
-    pub argon2_memory_kib: u32,
-    pub argon2_time_cost: u16,
-    pub argon2_parallelism: u16,
-    pub encrypted_key: [u8; 64],
-    pub key_hmac: [u8; 32],
+    pub data_salt: [u8; 64],
+    pub slots: [KeySlot; MAX_KEY_SLOTS],
+    pub feature_flags: u32,
+    pub tag_region_start: u64,
+    pub tag_region_blocks: u64,
+    /// Stored at buf[0..64] — needed when re-serialising the header.
+    pub header_salt: [u8; HEADER_SALT_LEN],
 }
 
 impl Drop for CryptoHeader {
     fn drop(&mut self) {
-        self.salt.zeroize();
-        self.encrypted_key.zeroize();
-        self.key_hmac.zeroize();
+        self.data_salt.zeroize();
+        self.header_salt.zeroize();
     }
 }
 
 impl CryptoHeader {
-    /// Generate a new crypto header (v2) and return `(header, master_key)`.
+    // -----------------------------------------------------------------------
+    // Key derivation helpers
+    // -----------------------------------------------------------------------
+
+    /// Derive the 32-byte AES-256-CBC key + 16-byte IV for the header envelope.
+    /// Fast PBKDF2-SHA256 (10 000 iters only — the slot KDF does the heavy lifting).
+    fn derive_header_key(password: &[u8], header_salt: &[u8; HEADER_SALT_LEN]) -> ([u8; 32], [u8; 16]) {
+        let mut derived = [0u8; 48];
+        pbkdf2_hmac::<Sha256>(password, &header_salt[..32], HEADER_KDF_ITERS, &mut derived);
+        let mut key = [0u8; 32];
+        let mut iv = [0u8; 16];
+        key.copy_from_slice(&derived[..32]);
+        iv.copy_from_slice(&derived[32..48]);
+        derived.zeroize();
+        (key, iv)
+    }
+
+    /// Derive the 32-byte AEAD tag key from the master key via HMAC.
+    pub fn derive_tag_key(master_key: &[u8; 64]) -> [u8; 32] {
+        use hmac::{Hmac, Mac};
+        type HmacSha256 = Hmac<Sha256>;
+        let mut mac = HmacSha256::new_from_slice(master_key)
+            .expect("HMAC key always valid");
+        mac.update(b"cfs-aead-tag-key-v3");
+        let result = mac.finalize().into_bytes();
+        let mut tag_key = [0u8; 32];
+        tag_key.copy_from_slice(&result[..32]);
+        tag_key
+    }
+
+    // -----------------------------------------------------------------------
+    // Create
+    // -----------------------------------------------------------------------
+
+    /// Create a new v3 header with slot 0 active. Returns (header, master_key).
     ///
-    /// The master key is needed by the caller to construct the XTS cipher.
+    /// `enable_aead`: if true, sets `CFS_FEATURE_DATA_AEAD` in feature_flags.
+    /// `tag_region_start` / `tag_region_blocks`: AEAD tag region layout (0 if disabled).
     pub fn create(
         password: &[u8],
         kdf_params: &KdfParams,
         encryption_unit: u32,
+        enable_aead: bool,
+        tag_region_start: u64,
+        tag_region_blocks: u64,
     ) -> Result<(Self, [u8; 64])> {
         kdf_params.validate()?;
-
         if encryption_unit < 512 || !encryption_unit.is_power_of_two() {
-            bail!(
-                "encryption_unit must be a power of 2 and ≥ 512, got {encryption_unit}"
-            );
+            bail!("encryption_unit must be power of 2 and >= 512, got {encryption_unit}");
         }
+        use rand::RngCore;
+        let mut header_salt = [0u8; HEADER_SALT_LEN];
+        rand::rngs::OsRng.fill_bytes(&mut header_salt);
+        let mut data_salt = [0u8; 64];
+        rand::rngs::OsRng.fill_bytes(&mut data_salt);
 
-        let salt = generate_salt();
         let master_key = generate_master_key();
-        let (mut kek, mut hmac_key) = derive_keys_with_params(password, &salt, kdf_params)?;
-        let encrypted_key = xor_key_wrap(&master_key, &kek);
-        let key_hmac = compute_hmac(&hmac_key, &master_key);
-        kek.zeroize();
-        hmac_key.zeroize();
+        let slot0 = KeySlot::create(&master_key, password, kdf_params)?;
+        let slots = [slot0, KeySlot::empty(), KeySlot::empty(), KeySlot::empty()];
+        let feature_flags = if enable_aead { CFS_FEATURE_DATA_AEAD } else { 0 };
 
         let hdr = Self {
-            version: CRYPTO_VERSION,
+            version: CRYPTO_VERSION_V3,
             header_blocks: DEFAULT_HEADER_BLOCKS,
             encryption_unit,
-            salt,
-            pbkdf2_iters: kdf_params.pbkdf2_iterations,
             kdf_algorithm: kdf_params.algorithm,
-            argon2_memory_kib: kdf_params.argon2_memory_kib,
-            argon2_time_cost: kdf_params.argon2_time_cost as u16,
-            argon2_parallelism: kdf_params.argon2_parallelism as u16,
-            encrypted_key,
-            key_hmac,
+            data_salt,
+            slots,
+            feature_flags,
+            tag_region_start,
+            tag_region_blocks,
+            header_salt,
         };
-
         Ok((hdr, master_key))
     }
 
-    /// Reconstruct `KdfParams` from header fields.
-    pub fn kdf_params(&self) -> KdfParams {
-        KdfParams {
-            algorithm: self.kdf_algorithm,
-            pbkdf2_iterations: self.pbkdf2_iters,
-            argon2_memory_kib: self.argon2_memory_kib,
-            argon2_time_cost: self.argon2_time_cost as u32,
-            argon2_parallelism: self.argon2_parallelism as u32,
+    /// Create without KDF validation — for tests with low iteration counts.
+    #[cfg(test)]
+    pub fn create_for_testing(
+        password: &[u8],
+        kdf_params: KdfParams,
+        encryption_unit: u32,
+    ) -> Result<(Self, [u8; 64])> {
+        use rand::RngCore;
+        if encryption_unit < 512 || !encryption_unit.is_power_of_two() {
+            bail!("bad eu");
         }
-    }
-
-    /// Unlock the header with a password, returning the master key.
-    pub fn unlock(&self, password: &[u8]) -> Result<[u8; 64]> {
-        let params = self.kdf_params();
-        let (mut kek, mut hmac_key) = derive_keys_with_params(password, &self.salt, &params)?;
-        let mut candidate = xor_key_wrap(&self.encrypted_key, &kek);
-        let result = verify_hmac(&hmac_key, &candidate, &self.key_hmac);
-        kek.zeroize();
-        hmac_key.zeroize();
-        if result.is_err() {
-            candidate.zeroize();
-            return Err(result.unwrap_err());
-        }
-        Ok(candidate)
-    }
-
-    /// Change the password protecting the master key.
-    ///
-    /// The old password is verified, then the master key is re-wrapped with
-    /// the new password. A fresh salt is generated. Optionally switches KDF.
-    pub fn change_password(
-        &mut self,
-        old_password: &[u8],
-        new_password: &[u8],
-        new_kdf: Option<KdfParams>,
-    ) -> Result<()> {
-        let mut master_key = self.unlock(old_password)?;
-
-        let params = match new_kdf {
-            Some(p) => { p.validate()?; p }
-            None => self.kdf_params(),
-        };
-
-        let new_salt = generate_salt();
-        let (mut new_kek, mut new_hmac_key) =
-            derive_keys_with_params(new_password, &new_salt, &params)?;
-        self.version = CRYPTO_VERSION;
-        self.salt = new_salt;
-        self.kdf_algorithm = params.algorithm;
-        self.pbkdf2_iters = params.pbkdf2_iterations;
-        self.argon2_memory_kib = params.argon2_memory_kib;
-        self.argon2_time_cost = params.argon2_time_cost as u16;
-        self.argon2_parallelism = params.argon2_parallelism as u16;
-        self.encrypted_key = xor_key_wrap(&master_key, &new_kek);
-        self.key_hmac = compute_hmac(&new_hmac_key, &master_key);
-        master_key.zeroize();
-        new_kek.zeroize();
-        new_hmac_key.zeroize();
-
-        Ok(())
+        let mut header_salt = [0u8; HEADER_SALT_LEN];
+        rand::rngs::OsRng.fill_bytes(&mut header_salt);
+        let mut data_salt = [0u8; 64];
+        rand::rngs::OsRng.fill_bytes(&mut data_salt);
+        let master_key = generate_master_key();
+        let slot0 = KeySlot::create(&master_key, password, &kdf_params)?;
+        let slots = [slot0, KeySlot::empty(), KeySlot::empty(), KeySlot::empty()];
+        let hdr = Self { version: CRYPTO_VERSION_V3, header_blocks: DEFAULT_HEADER_BLOCKS, encryption_unit, kdf_algorithm: kdf_params.algorithm, data_salt, slots, feature_flags: 0, tag_region_start: 0, tag_region_blocks: 0, header_salt };
+        Ok((hdr, master_key))
     }
 
     // -----------------------------------------------------------------------
     // Serialization
     // -----------------------------------------------------------------------
 
-    /// Serialize header into a full block (block_size bytes, default 4096).
-    /// Always writes v2 format.
-    pub fn serialize(&self, block_size: u32) -> Vec<u8> {
-        let mut buf = vec![0u8; block_size as usize];
+    /// Serialize to a 4096-byte block, AES-256-CBC encrypting the payload.
+    pub fn serialize(&self, password: &[u8]) -> Result<Vec<u8>> {
+        let mut payload = [0u8; PAYLOAD_LEN];
+        payload[OFF_MAGIC..OFF_MAGIC + 4].copy_from_slice(&CRYPTO_MAGIC);
+        payload[OFF_VERSION..OFF_VERSION + 4].copy_from_slice(&CRYPTO_VERSION_V3.to_le_bytes());
+        payload[OFF_HEADER_BLOCKS..OFF_HEADER_BLOCKS + 4].copy_from_slice(&self.header_blocks.to_le_bytes());
+        payload[OFF_EU..OFF_EU + 4].copy_from_slice(&self.encryption_unit.to_le_bytes());
+        payload[OFF_KDF_ALGO..OFF_KDF_ALGO + 4].copy_from_slice(&(self.kdf_algorithm as u32).to_le_bytes());
+        let num_active = self.slots.iter().filter(|s| s.state == KEY_SLOT_ACTIVE).count() as u32;
+        payload[OFF_NUM_SLOTS..OFF_NUM_SLOTS + 4].copy_from_slice(&num_active.to_le_bytes());
+        payload[OFF_DATA_SALT..OFF_DATA_SALT + 64].copy_from_slice(&self.data_salt);
+        for (i, slot) in self.slots.iter().enumerate() {
+            let s = OFF_SLOTS + i * KEY_SLOT_SIZE;
+            payload[s..s + KEY_SLOT_SIZE].copy_from_slice(&slot.serialize());
+        }
+        payload[OFF_FEATURE_FLAGS..OFF_FEATURE_FLAGS + 4].copy_from_slice(&self.feature_flags.to_le_bytes());
+        payload[OFF_TAG_START..OFF_TAG_START + 8].copy_from_slice(&self.tag_region_start.to_le_bytes());
+        payload[OFF_TAG_BLOCKS..OFF_TAG_BLOCKS + 8].copy_from_slice(&self.tag_region_blocks.to_le_bytes());
+        let crc = crc32fast::hash(&payload[..OFF_CRC]);
+        payload[OFF_CRC..OFF_CRC + 4].copy_from_slice(&crc.to_le_bytes());
 
-        buf[0..4].copy_from_slice(&CRYPTO_MAGIC);
-        buf[4..8].copy_from_slice(&CRYPTO_VERSION.to_le_bytes());
-        buf[8..12].copy_from_slice(&self.header_blocks.to_le_bytes());
-        buf[12..16].copy_from_slice(&self.encryption_unit.to_le_bytes());
-        buf[16..48].copy_from_slice(&self.salt);
-        buf[48..52].copy_from_slice(&self.pbkdf2_iters.to_le_bytes());
-        buf[52] = self.kdf_algorithm as u8;
-        // 53..56 reserved (zeros)
-        buf[56..120].copy_from_slice(&self.encrypted_key);
-        buf[120..152].copy_from_slice(&self.key_hmac);
-        buf[152..156].copy_from_slice(&self.argon2_memory_kib.to_le_bytes());
-        buf[156..158].copy_from_slice(&self.argon2_time_cost.to_le_bytes());
-        buf[158..160].copy_from_slice(&self.argon2_parallelism.to_le_bytes());
+        let (mut hkey, hiv) = Self::derive_header_key(password, &self.header_salt);
+        let mut enc = payload.to_vec();
+        Aes256CbcEnc::new_from_slices(&hkey, &hiv)
+            .map_err(|e| anyhow::anyhow!("CBC init: {e}"))?
+            .encrypt_padded_mut::<NoPadding>(&mut enc, PAYLOAD_LEN)
+            .map_err(|e| anyhow::anyhow!("CBC encrypt: {e}"))?;
+        hkey.zeroize();
 
-        let crc = crc32fast::hash(&buf[..160]);
-        buf[160..164].copy_from_slice(&crc.to_le_bytes());
-
-        buf
+        let mut block = vec![0u8; 4096];
+        block[..HEADER_SALT_LEN].copy_from_slice(&self.header_salt);
+        block[HEADER_SALT_LEN..HEADER_SALT_LEN + PAYLOAD_LEN].copy_from_slice(&enc);
+        Ok(block)
     }
 
-    /// Deserialize a CryptoHeader from a block-sized buffer.
-    /// Supports both v1 (read-only) and v2 formats.
-    pub fn deserialize(buf: &[u8]) -> Result<Self> {
-        if buf.len() < CRYPTO_HEADER_MEANINGFUL_V1 {
-            bail!("buffer too small for CryptoHeader ({} < {CRYPTO_HEADER_MEANINGFUL_V1})", buf.len());
+    /// Deserialize a v3 header. Returns Err if wrong password or not v3.
+    pub fn deserialize(buf: &[u8], password: &[u8]) -> Result<Self> {
+        if buf.len() < 4096 {
+            bail!("buffer too small for v3 header ({} < 4096)", buf.len());
         }
-        if &buf[0..4] != &CRYPTO_MAGIC {
-            bail!("bad crypto magic: expected CFSE");
-        }
-        let version = u32::from_le_bytes(buf[4..8].try_into().unwrap());
-        match version {
-            CRYPTO_VERSION_V1 => Self::deserialize_v1(buf),
-            CRYPTO_VERSION => Self::deserialize_v2(buf),
-            _ => bail!("unsupported crypto version: {version}"),
-        }
-    }
+        let mut header_salt = [0u8; HEADER_SALT_LEN];
+        header_salt.copy_from_slice(&buf[..HEADER_SALT_LEN]);
 
-    fn deserialize_v1(buf: &[u8]) -> Result<Self> {
-        let stored_crc = u32::from_le_bytes(buf[152..156].try_into().unwrap());
-        let computed_crc = crc32fast::hash(&buf[..152]);
-        if stored_crc != computed_crc {
-            bail!("CryptoHeader CRC mismatch (stored={stored_crc:#010x}, computed={computed_crc:#010x})");
+        let (mut hkey, hiv) = Self::derive_header_key(password, &header_salt);
+        let mut plain = buf[HEADER_SALT_LEN..HEADER_SALT_LEN + PAYLOAD_LEN].to_vec();
+        Aes256CbcDec::new_from_slices(&hkey, &hiv)
+            .map_err(|e| anyhow::anyhow!("CBC init: {e}"))?
+            .decrypt_padded_mut::<NoPadding>(&mut plain)
+            .map_err(|_| anyhow::anyhow!("wrong password or not a v3 CFS volume"))?;
+        hkey.zeroize();
+
+        if plain.len() < PAYLOAD_MEANINGFUL {
+            bail!("decrypted payload too short");
+        }
+        if &plain[OFF_MAGIC..OFF_MAGIC + 4] != &CRYPTO_MAGIC {
+            bail!("wrong password or not a v3 CFS volume");
+        }
+        let version = u32::from_le_bytes(plain[OFF_VERSION..OFF_VERSION + 4].try_into().unwrap());
+        if version != CRYPTO_VERSION_V3 {
+            bail!("unsupported crypto version: {version}");
+        }
+        let stored_crc = u32::from_le_bytes(plain[OFF_CRC..OFF_CRC + 4].try_into().unwrap());
+        let computed_crc = crc32fast::hash(&plain[..OFF_CRC]);
+        if stored_crc.to_le_bytes().ct_eq(&computed_crc.to_le_bytes()).unwrap_u8() == 0 {
+            bail!("v3 header CRC mismatch — possible corruption");
         }
 
-        let header_blocks = u32::from_le_bytes(buf[8..12].try_into().unwrap());
-        let encryption_unit = u32::from_le_bytes(buf[12..16].try_into().unwrap());
-
+        let header_blocks = u32::from_le_bytes(plain[OFF_HEADER_BLOCKS..OFF_HEADER_BLOCKS + 4].try_into().unwrap());
+        let encryption_unit = u32::from_le_bytes(plain[OFF_EU..OFF_EU + 4].try_into().unwrap());
         if encryption_unit < 512 || !encryption_unit.is_power_of_two() {
-            bail!(
-                "invalid encryption_unit in header: must be power of 2 and ≥ 512, got {encryption_unit}"
-            );
+            bail!("invalid encryption_unit: {encryption_unit}");
+        }
+        let kdf_algo_u32 = u32::from_le_bytes(plain[OFF_KDF_ALGO..OFF_KDF_ALGO + 4].try_into().unwrap());
+        let kdf_algorithm = KdfAlgorithm::from_u8(kdf_algo_u32 as u8)?;
+        let mut data_salt = [0u8; 64];
+        data_salt.copy_from_slice(&plain[OFF_DATA_SALT..OFF_DATA_SALT + 64]);
+
+        let mut slots_arr = [KeySlot::empty(), KeySlot::empty(), KeySlot::empty(), KeySlot::empty()];
+        for i in 0..MAX_KEY_SLOTS {
+            let s = OFF_SLOTS + i * KEY_SLOT_SIZE;
+            let mut sb = [0u8; KEY_SLOT_SIZE];
+            sb.copy_from_slice(&plain[s..s + KEY_SLOT_SIZE]);
+            slots_arr[i] = KeySlot::deserialize(&sb)?;
         }
 
-        let mut salt = [0u8; 32];
-        salt.copy_from_slice(&buf[16..48]);
-        let pbkdf2_iters = u32::from_le_bytes(buf[48..52].try_into().unwrap());
-        let mut encrypted_key = [0u8; 64];
-        encrypted_key.copy_from_slice(&buf[56..120]);
-        let mut key_hmac = [0u8; 32];
-        key_hmac.copy_from_slice(&buf[120..152]);
+        let feature_flags = u32::from_le_bytes(plain[OFF_FEATURE_FLAGS..OFF_FEATURE_FLAGS + 4].try_into().unwrap());
+        let tag_region_start = u64::from_le_bytes(plain[OFF_TAG_START..OFF_TAG_START + 8].try_into().unwrap());
+        let tag_region_blocks = u64::from_le_bytes(plain[OFF_TAG_BLOCKS..OFF_TAG_BLOCKS + 8].try_into().unwrap());
 
-        Ok(Self {
-            version: CRYPTO_VERSION_V1,
-            header_blocks,
-            encryption_unit,
-            salt,
-            pbkdf2_iters,
-            kdf_algorithm: KdfAlgorithm::Pbkdf2HmacSha256,
-            argon2_memory_kib: 0,
-            argon2_time_cost: 0,
-            argon2_parallelism: 0,
-            encrypted_key,
-            key_hmac,
-        })
+        Ok(Self { version, header_blocks, encryption_unit, kdf_algorithm, data_salt, slots: slots_arr, feature_flags, tag_region_start, tag_region_blocks, header_salt })
     }
 
-    fn deserialize_v2(buf: &[u8]) -> Result<Self> {
-        if buf.len() < CRYPTO_HEADER_MEANINGFUL_V2 {
-            bail!("buffer too small for v2 CryptoHeader ({} < {CRYPTO_HEADER_MEANINGFUL_V2})", buf.len());
+    // -----------------------------------------------------------------------
+    // Unlock
+    // -----------------------------------------------------------------------
+
+    /// Try all active slots with `password`, return master key on first match.
+    pub fn unlock(&self, password: &[u8]) -> Result<[u8; 64]> {
+        for slot in &self.slots {
+            match slot.try_unlock(password) {
+                Ok(Some(mk)) => return Ok(mk),
+                Ok(None) => continue,
+                Err(_) => continue, // wrong pw for this slot, try next
+            }
         }
-
-        let stored_crc = u32::from_le_bytes(buf[160..164].try_into().unwrap());
-        let computed_crc = crc32fast::hash(&buf[..160]);
-        if stored_crc != computed_crc {
-            bail!("CryptoHeader CRC mismatch (stored={stored_crc:#010x}, computed={computed_crc:#010x})");
-        }
-
-        let header_blocks = u32::from_le_bytes(buf[8..12].try_into().unwrap());
-        let encryption_unit = u32::from_le_bytes(buf[12..16].try_into().unwrap());
-
-        if encryption_unit < 512 || !encryption_unit.is_power_of_two() {
-            bail!(
-                "invalid encryption_unit in header: must be power of 2 and ≥ 512, got {encryption_unit}"
-            );
-        }
-
-        let mut salt = [0u8; 32];
-        salt.copy_from_slice(&buf[16..48]);
-        let pbkdf2_iters = u32::from_le_bytes(buf[48..52].try_into().unwrap());
-        let kdf_algorithm = KdfAlgorithm::from_u8(buf[52])?;
-        let mut encrypted_key = [0u8; 64];
-        encrypted_key.copy_from_slice(&buf[56..120]);
-        let mut key_hmac = [0u8; 32];
-        key_hmac.copy_from_slice(&buf[120..152]);
-        let argon2_memory_kib = u32::from_le_bytes(buf[152..156].try_into().unwrap());
-        let argon2_time_cost = u16::from_le_bytes(buf[156..158].try_into().unwrap());
-        let argon2_parallelism = u16::from_le_bytes(buf[158..160].try_into().unwrap());
-
-        Ok(Self {
-            version: CRYPTO_VERSION,
-            header_blocks,
-            encryption_unit,
-            salt,
-            pbkdf2_iters,
-            kdf_algorithm,
-            argon2_memory_kib,
-            argon2_time_cost,
-            argon2_parallelism,
-            encrypted_key,
-            key_hmac,
-        })
+        bail!("wrong password — no active slot could be unlocked")
     }
 
-    /// Write header to block 0 of a device.
-    pub fn write_to(&self, dev: &mut dyn CFSBlockDevice, block_size: u32) -> Result<()> {
-        let buf = self.serialize(block_size);
+    // -----------------------------------------------------------------------
+    // Slot management
+    // -----------------------------------------------------------------------
+
+    /// Add a new slot. Requires master key (obtained by first unlocking with an existing slot).
+    pub fn add_slot(&mut self, master_key: &[u8; 64], new_password: &[u8], kdf_params: &KdfParams) -> Result<usize> {
+        for (i, slot) in self.slots.iter_mut().enumerate() {
+            if !slot.is_active() {
+                *slot = KeySlot::create(master_key, new_password, kdf_params)?;
+                return Ok(i);
+            }
+        }
+        bail!("all {MAX_KEY_SLOTS} key slots are already active")
+    }
+
+    /// Revoke slot at `slot_idx`. `auth_password` must unlock any active slot.
+    /// Refuses if it would remove the last active slot.
+    pub fn remove_slot(&mut self, slot_idx: usize, auth_password: &[u8]) -> Result<()> {
+        if slot_idx >= MAX_KEY_SLOTS { bail!("slot index {slot_idx} out of range"); }
+        let mut mk = self.unlock(auth_password)?; // authenticate
+        mk.zeroize();
+        let active_count = self.slots.iter().filter(|s| s.is_active()).count();
+        if active_count <= 1 { bail!("cannot revoke the last active key slot"); }
+        self.slots[slot_idx].revoke();
+        Ok(())
+    }
+
+    pub fn aead_enabled(&self) -> bool { self.feature_flags & CFS_FEATURE_DATA_AEAD != 0 }
+
+    // -----------------------------------------------------------------------
+    // Block I/O helpers
+    // -----------------------------------------------------------------------
+
+    pub fn write_to(&self, dev: &mut dyn CFSBlockDevice, password: &[u8], _block_size: u32) -> Result<()> {
+        let buf = self.serialize(password)?;
         dev.write(0, &buf)?;
         Ok(())
     }
 
-    /// Read header from block 0 of a device.
-    pub fn read_from(dev: &mut dyn CFSBlockDevice, block_size: u32) -> Result<Self> {
-        let mut buf = vec![0u8; block_size as usize];
+    pub fn read_from(dev: &mut dyn CFSBlockDevice, password: &[u8], block_size: u32) -> Result<Self> {
+        let sz = (block_size as usize).max(4096);
+        let mut buf = vec![0u8; sz];
         dev.read(0, &mut buf)?;
-        Self::deserialize(&buf)
+        Self::deserialize(&buf, password)
     }
 }
 
@@ -342,316 +353,83 @@ impl CryptoHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use super::super::key::{KdfAlgorithm, KdfParams};
-
-    // Use fewer PBKDF2 iterations in tests for speed.
-    // Production code enforces minimums via KdfParams::validate().
     const EU: u32 = 4096;
 
-    /// Helper: create test header with low-iter PBKDF2 for speed.
-    fn test_create(password: &[u8]) -> (CryptoHeader, [u8; 64]) {
-        // Bypass the validate() minimum by constructing manually.
-        let salt = super::super::key::generate_salt();
-        let master_key = super::super::key::generate_master_key();
-        let params = KdfParams {
-            algorithm: KdfAlgorithm::Pbkdf2HmacSha256,
-            pbkdf2_iterations: 1000,
-            argon2_memory_kib: 0,
-            argon2_time_cost: 0,
-            argon2_parallelism: 0,
-        };
-        let (kek, hmac_key) = super::super::key::derive_keys_with_params(password, &salt, &params).unwrap();
-        let encrypted_key = super::super::key::xor_key_wrap(&master_key, &kek);
-        let key_hmac = super::super::key::compute_hmac(&hmac_key, &master_key);
-        let hdr = CryptoHeader {
-            version: CRYPTO_VERSION,
-            header_blocks: DEFAULT_HEADER_BLOCKS,
-            encryption_unit: EU,
-            salt,
-            pbkdf2_iters: 1000,
-            kdf_algorithm: KdfAlgorithm::Pbkdf2HmacSha256,
-            argon2_memory_kib: 0,
-            argon2_time_cost: 0,
-            argon2_parallelism: 0,
-            encrypted_key,
-            key_hmac,
-        };
-        (hdr, master_key)
-    }
-
-    /// Helper: create test header with Argon2id (minimal params for speed).
-    fn test_create_argon2id(password: &[u8]) -> (CryptoHeader, [u8; 64]) {
-        let salt = super::super::key::generate_salt();
-        let master_key = super::super::key::generate_master_key();
-        let params = KdfParams {
-            algorithm: KdfAlgorithm::Argon2id,
-            pbkdf2_iterations: 0,
-            argon2_memory_kib: 16 * 1024,
-            argon2_time_cost: 1,
-            argon2_parallelism: 1,
-        };
-        let (kek, hmac_key) = super::super::key::derive_keys_with_params(password, &salt, &params).unwrap();
-        let encrypted_key = super::super::key::xor_key_wrap(&master_key, &kek);
-        let key_hmac = super::super::key::compute_hmac(&hmac_key, &master_key);
-        let hdr = CryptoHeader {
-            version: CRYPTO_VERSION,
-            header_blocks: DEFAULT_HEADER_BLOCKS,
-            encryption_unit: EU,
-            salt,
-            pbkdf2_iters: 0,
-            kdf_algorithm: KdfAlgorithm::Argon2id,
-            argon2_memory_kib: 16 * 1024,
-            argon2_time_cost: 1,
-            argon2_parallelism: 1,
-            encrypted_key,
-            key_hmac,
-        };
-        (hdr, master_key)
+    fn fast_kdf() -> KdfParams {
+        KdfParams { algorithm: KdfAlgorithm::Pbkdf2HmacSha256, pbkdf2_iterations: 100_000, argon2_memory_kib: 0, argon2_time_cost: 0, argon2_parallelism: 0 }
     }
 
     #[test]
-    fn test_header_roundtrip() {
-        let password = b"roundtrip_pw";
-        let (hdr, master_key) = test_create(password);
-
-        let buf = hdr.serialize(EU);
-        let hdr2 = CryptoHeader::deserialize(&buf).unwrap();
-
-        let recovered = hdr2.unlock(password).unwrap();
-        assert_eq!(recovered, master_key);
+    fn test_v3_roundtrip() {
+        let (hdr, mk) = CryptoHeader::create_for_testing(b"pw", fast_kdf(), EU).unwrap();
+        let block = hdr.serialize(b"pw").unwrap();
+        let hdr2 = CryptoHeader::deserialize(&block, b"pw").unwrap();
+        assert_eq!(hdr2.unlock(b"pw").unwrap(), mk);
     }
 
     #[test]
-    fn test_wrong_password_rejected() {
-        let (hdr, _) = test_create(b"correct");
-        let result = hdr.unlock(b"incorrect");
-        assert!(result.is_err());
+    fn test_v3_no_plaintext_magic() {
+        let (hdr, _) = CryptoHeader::create_for_testing(b"secret", fast_kdf(), EU).unwrap();
+        let block = hdr.serialize(b"secret").unwrap();
+        // Bytes 0..4 (salt) must not be "CFSE"
+        assert_ne!(&block[0..4], b"CFSE");
+        // Bytes 64..68 (start of encrypted payload) must not be "CFSE"
+        assert_ne!(&block[64..68], b"CFSE");
     }
 
     #[test]
-    fn test_correct_password_accepted() {
-        let password = b"my_secret";
-        let (hdr, mk) = test_create(password);
-        let recovered = hdr.unlock(password).unwrap();
-        assert_eq!(recovered, mk);
+    fn test_v3_wrong_password_fails() {
+        let (hdr, _) = CryptoHeader::create_for_testing(b"correct", fast_kdf(), EU).unwrap();
+        let block = hdr.serialize(b"correct").unwrap();
+        assert!(CryptoHeader::deserialize(&block, b"wrong").is_err());
     }
 
     #[test]
-    fn test_tampered_encrypted_key() {
-        let password = b"tamper_test";
-        let (mut hdr, _) = test_create(password);
-        hdr.encrypted_key[0] ^= 0xFF; // corrupt one byte
-        let result = hdr.unlock(password);
-        assert!(result.is_err(), "tampered encrypted_key should fail HMAC");
+    fn test_v3_multi_slot_unlock() {
+        let (mut hdr, mk) = CryptoHeader::create_for_testing(b"slot0", fast_kdf(), EU).unwrap();
+        hdr.add_slot(&mk, b"slot1", &fast_kdf()).unwrap();
+        let block = hdr.serialize(b"slot0").unwrap();
+        let hdr2 = CryptoHeader::deserialize(&block, b"slot0").unwrap();
+        assert_eq!(hdr2.unlock(b"slot0").unwrap(), mk);
+        assert_eq!(hdr2.unlock(b"slot1").unwrap(), mk);
     }
 
     #[test]
-    fn test_tampered_hmac() {
-        let password = b"hmac_test";
-        let (mut hdr, _) = test_create(password);
-        hdr.key_hmac[0] ^= 0xFF;
-        let result = hdr.unlock(password);
-        assert!(result.is_err(), "tampered HMAC should fail verification");
+    fn test_v3_slot_revocation() {
+        let (mut hdr, mk) = CryptoHeader::create_for_testing(b"s0", fast_kdf(), EU).unwrap();
+        hdr.add_slot(&mk, b"s1", &fast_kdf()).unwrap();
+        hdr.remove_slot(0, b"s0").unwrap();
+        assert!(hdr.unlock(b"s0").is_err());
+        assert_eq!(hdr.unlock(b"s1").unwrap(), mk);
     }
 
     #[test]
-    fn test_password_change() {
-        let old_pw = b"old_password";
-        let new_pw = b"new_password";
-        let (mut hdr, master_key) = test_create(old_pw);
-
-        // Manually perform the change_password logic with low iters for speed
-        let mk = hdr.unlock(old_pw).unwrap();
-        assert_eq!(mk, master_key);
-
-        let new_salt = super::super::key::generate_salt();
-        let params = KdfParams {
-            algorithm: KdfAlgorithm::Pbkdf2HmacSha256,
-            pbkdf2_iterations: 1000,
-            argon2_memory_kib: 0,
-            argon2_time_cost: 0,
-            argon2_parallelism: 0,
-        };
-        let (new_kek, new_hmac_key) =
-            super::super::key::derive_keys_with_params(new_pw, &new_salt, &params).unwrap();
-        hdr.salt = new_salt;
-        hdr.pbkdf2_iters = 1000;
-        hdr.encrypted_key = super::super::key::xor_key_wrap(&mk, &new_kek);
-        hdr.key_hmac = super::super::key::compute_hmac(&new_hmac_key, &mk);
-
-        // Old password should fail
-        assert!(hdr.unlock(old_pw).is_err());
-        // New password should recover the same master key
-        let recovered = hdr.unlock(new_pw).unwrap();
-        assert_eq!(recovered, master_key);
+    fn test_v3_cannot_revoke_last_slot() {
+        let (mut hdr, _) = CryptoHeader::create_for_testing(b"only", fast_kdf(), EU).unwrap();
+        assert!(hdr.remove_slot(0, b"only").is_err());
     }
 
     #[test]
-    fn test_create_rejects_bad_encryption_unit() {
-        let params = KdfParams::default_pbkdf2();
-
-        // Not a power of 2
-        let result = CryptoHeader::create(b"pw", &params, 3000);
-        assert!(result.is_err(), "should reject non-power-of-2");
-
-        // Too small
-        let result = CryptoHeader::create(b"pw", &params, 256);
-        assert!(result.is_err(), "should reject < 512");
-
-        // Zero
-        let result = CryptoHeader::create(b"pw", &params, 0);
-        assert!(result.is_err(), "should reject zero");
+    fn test_v3_aead_flag_persisted() {
+        let kdf = fast_kdf();
+        let (hdr, _) = CryptoHeader::create(b"pw", &kdf, EU, true, 1024, 500).unwrap();
+        assert!(hdr.aead_enabled());
+        let block = hdr.serialize(b"pw").unwrap();
+        let hdr2 = CryptoHeader::deserialize(&block, b"pw").unwrap();
+        assert!(hdr2.aead_enabled());
+        assert_eq!(hdr2.tag_region_start, 1024);
+        assert_eq!(hdr2.tag_region_blocks, 500);
     }
 
     #[test]
-    fn test_deserialize_rejects_bad_encryption_unit() {
-        // Create a valid header then tamper with the encryption_unit field
-        let (hdr, _) = test_create(b"pw");
-        let mut buf = hdr.serialize(EU);
-
-        // Set encryption_unit to 300 (not power of 2)
-        buf[12..16].copy_from_slice(&300u32.to_le_bytes());
-        // Recompute CRC for the tampered buffer (v2: CRC at 160)
-        let new_crc = crc32fast::hash(&buf[..160]);
-        buf[160..164].copy_from_slice(&new_crc.to_le_bytes());
-
-        let result = CryptoHeader::deserialize(&buf);
-        assert!(result.is_err(), "should reject invalid encryption_unit on deserialize");
-    }
-
-    // -----------------------------------------------------------------------
-    // Phase 7F — v2 / Argon2id tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_v2_roundtrip() {
-        let password = b"v2_roundtrip_pw";
-        let (hdr, master_key) = test_create(password);
-
-        let buf = hdr.serialize(EU);
-        assert_eq!(&buf[4..8], &2u32.to_le_bytes()); // version == 2
-
-        let hdr2 = CryptoHeader::deserialize(&buf).unwrap();
-        assert_eq!(hdr2.version, CRYPTO_VERSION);
-        assert_eq!(hdr2.kdf_algorithm, KdfAlgorithm::Pbkdf2HmacSha256);
-
-        let recovered = hdr2.unlock(password).unwrap();
-        assert_eq!(recovered, master_key);
-    }
-
-    #[test]
-    fn test_v1_backward_compat() {
-        // Manually build a v1-format buffer and verify it deserializes.
-        let password = b"v1_test";
-        let salt = super::super::key::generate_salt();
-        let master_key = super::super::key::generate_master_key();
-        let params = KdfParams {
-            algorithm: KdfAlgorithm::Pbkdf2HmacSha256,
-            pbkdf2_iterations: 1000,
-            argon2_memory_kib: 0,
-            argon2_time_cost: 0,
-            argon2_parallelism: 0,
-        };
-        let (kek, hmac_key) = super::super::key::derive_keys_with_params(password, &salt, &params).unwrap();
-        let encrypted_key = super::super::key::xor_key_wrap(&master_key, &kek);
-        let key_hmac = super::super::key::compute_hmac(&hmac_key, &master_key);
-
-        let mut buf = vec![0u8; EU as usize];
-        buf[0..4].copy_from_slice(b"CFSE");
-        buf[4..8].copy_from_slice(&1u32.to_le_bytes()); // version 1
-        buf[8..12].copy_from_slice(&1u32.to_le_bytes());
-        buf[12..16].copy_from_slice(&EU.to_le_bytes());
-        buf[16..48].copy_from_slice(&salt);
-        buf[48..52].copy_from_slice(&1000u32.to_le_bytes());
-        buf[56..120].copy_from_slice(&encrypted_key);
-        buf[120..152].copy_from_slice(&key_hmac);
-        let crc = crc32fast::hash(&buf[..152]);
-        buf[152..156].copy_from_slice(&crc.to_le_bytes());
-
-        let hdr = CryptoHeader::deserialize(&buf).unwrap();
-        assert_eq!(hdr.version, CRYPTO_VERSION_V1);
-        assert_eq!(hdr.kdf_algorithm, KdfAlgorithm::Pbkdf2HmacSha256);
-        assert_eq!(hdr.argon2_memory_kib, 0);
-
-        let recovered = hdr.unlock(password).unwrap();
-        assert_eq!(recovered, master_key);
-    }
-
-    #[test]
-    fn test_argon2id_create_unlock() {
-        let password = b"argon2id_header_test";
-        let (hdr, master_key) = test_create_argon2id(password);
-
-        assert_eq!(hdr.kdf_algorithm, KdfAlgorithm::Argon2id);
-        assert_eq!(hdr.argon2_memory_kib, 16 * 1024);
-        assert_eq!(hdr.argon2_time_cost, 1);
-        assert_eq!(hdr.argon2_parallelism, 1);
-
-        // Serialize and deserialize
-        let buf = hdr.serialize(EU);
-        let hdr2 = CryptoHeader::deserialize(&buf).unwrap();
-        assert_eq!(hdr2.kdf_algorithm, KdfAlgorithm::Argon2id);
-
-        let recovered = hdr2.unlock(password).unwrap();
-        assert_eq!(recovered, master_key);
-
-        // Wrong password
-        assert!(hdr2.unlock(b"wrong").is_err());
-    }
-
-    #[test]
-    fn test_change_password_pbkdf2_to_argon2id() {
-        let old_pw = b"old_pass";
-        let new_pw = b"new_pass";
-        let (mut hdr, master_key) = test_create(old_pw);
-        assert_eq!(hdr.kdf_algorithm, KdfAlgorithm::Pbkdf2HmacSha256);
-
-        // Switch to Argon2id
-        let argon_params = KdfParams {
-            algorithm: KdfAlgorithm::Argon2id,
-            pbkdf2_iterations: 0,
-            argon2_memory_kib: 16 * 1024,
-            argon2_time_cost: 1,
-            argon2_parallelism: 1,
-        };
-        hdr.change_password(old_pw, new_pw, Some(argon_params)).unwrap();
-
-        assert_eq!(hdr.kdf_algorithm, KdfAlgorithm::Argon2id);
-        assert_eq!(hdr.version, CRYPTO_VERSION);
-
-        // Old password should fail
-        assert!(hdr.unlock(old_pw).is_err());
-
-        // New password should recover master key
-        let recovered = hdr.unlock(new_pw).unwrap();
-        assert_eq!(recovered, master_key);
-
-        // Roundtrip through serialize/deserialize
-        let buf = hdr.serialize(EU);
-        let hdr2 = CryptoHeader::deserialize(&buf).unwrap();
-        let recovered2 = hdr2.unlock(new_pw).unwrap();
-        assert_eq!(recovered2, master_key);
-    }
-
-    #[test]
-    fn test_tampered_v2_header_detected() {
-        let (hdr, _) = test_create(b"tamper_v2");
-        let mut buf = hdr.serialize(EU);
-
-        // Tamper a byte in the KDF fields area
-        buf[153] ^= 0xFF;
-        let result = CryptoHeader::deserialize(&buf);
-        assert!(result.is_err(), "tampered v2 header should fail CRC");
-    }
-
-    #[test]
-    fn test_kdf_params_roundtrip() {
-        let (hdr, _) = test_create_argon2id(b"params_test");
-        let params = hdr.kdf_params();
-        assert_eq!(params.algorithm, KdfAlgorithm::Argon2id);
-        assert_eq!(params.argon2_memory_kib, 16 * 1024);
-        assert_eq!(params.argon2_time_cost, 1);
-        assert_eq!(params.argon2_parallelism, 1);
+    fn test_derive_tag_key_stable() {
+        let mk = [0xABu8; 64];
+        let tk1 = CryptoHeader::derive_tag_key(&mk);
+        let tk2 = CryptoHeader::derive_tag_key(&mk);
+        assert_eq!(tk1, tk2);
+        // Different master keys -> different tag keys
+        let mk2 = [0xCDu8; 64];
+        let tk3 = CryptoHeader::derive_tag_key(&mk2);
+        assert_ne!(tk1, tk3);
     }
 }

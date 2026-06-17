@@ -50,6 +50,9 @@ pub enum Commands {
         /// KDF algorithm: "argon2id" or "pbkdf2" (default: argon2id)
         #[arg(long, default_value = "argon2id")]
         kdf: String,
+        /// Enable Authenticated Encryption with Associated Data (AEAD)
+        #[arg(long)]
+        aead: bool,
         /// PBKDF2 iteration count (only with --kdf pbkdf2)
         #[arg(long, default_value = "600000")]
         pbkdf2_iters: u32,
@@ -248,6 +251,33 @@ pub enum Commands {
         /// New Argon2id parallelism (only with --kdf argon2id)
         #[arg(long)]
         argon2_parallelism: Option<u32>,
+    },
+    /// Manage key slots for an encrypted volume
+    Slot {
+        #[command(flatten)]
+        args: ImageArgs,
+        /// Add a new key slot (prompts for passwords)
+        #[arg(long)]
+        add: bool,
+        /// Remove the key slot at the given index
+        #[arg(long)]
+        remove: Option<usize>,
+        /// List all key slots
+        #[arg(short, long)]
+        list: bool,
+    },
+    /// Verify volume integrity: superblock, magic, root directory
+    Verify {
+        #[command(flatten)]
+        args: ImageArgs,
+    },
+    /// Securely overwrite and delete a CFS volume file
+    Wipe {
+        /// Path to the volume image file to destroy
+        image: String,
+        /// Number of random-data overwrite passes (default: 1)
+        #[arg(long, default_value_t = 1)]
+        passes: u32,
     },
     /// Benchmark KDF parameters (measure derivation time)
     BenchKdf {
@@ -480,8 +510,20 @@ pub fn auto_open_volume_with_password(
 
 /// Prompt user for a password with no terminal echo.
 pub fn prompt_password(prompt: &str) -> Result<String> {
-    let pw = rpassword::prompt_password(prompt)
-        .map_err(|e| anyhow::anyhow!("failed to read password: {}", e))?;
+    use std::io::IsTerminal;
+    
+    let pw = if !std::io::stdin().is_terminal() {
+        use std::io::BufRead;
+        print!("{}", prompt);
+        std::io::Write::flush(&mut std::io::stdout()).ok();
+        let mut line = String::new();
+        std::io::stdin().lock().read_line(&mut line)?;
+        line.trim_end_matches(&['\r', '\n'][..]).to_string()
+    } else {
+        rpassword::prompt_password(prompt)
+            .map_err(|e| anyhow::anyhow!("failed to read password: {}", e))?
+    };
+
     if pw.is_empty() {
         bail!("password cannot be empty");
     }
@@ -787,7 +829,7 @@ pub fn build_mount_options(
 
 pub fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
-        Commands::Format { image, size, block_size, encrypted, kdf, pbkdf2_iters, argon2_memory, argon2_time, argon2_parallelism, inode_size, inode_ratio, journal, label, preset, secure_delete, default_perms, error_behavior, blocks_per_group } => {
+        Commands::Format { image, size, block_size, encrypted, kdf, aead, pbkdf2_iters, argon2_memory, argon2_time, argon2_parallelism, inode_size, inode_ratio, journal, label, preset, secure_delete, default_perms, error_behavior, blocks_per_group } => {
             let kdf_params = parse_kdf_params(&kdf, pbkdf2_iters, argon2_memory, argon2_time, argon2_parallelism)?;
             let format_opts = build_format_options(
                 block_size,
@@ -801,7 +843,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 error_behavior.as_deref(),
                 blocks_per_group,
             )?;
-            commands::cmd_format(&image, &size, encrypted, &kdf_params, &format_opts)
+            commands::cmd_format(&image, &size, encrypted, aead, &kdf_params, &format_opts)
         }
         Commands::Info { args } => {
             commands::cmd_info(&args.image, args.block_size)
@@ -866,6 +908,9 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             };
             commands::cmd_passwd(&args.image, args.block_size, kdf_params)
         }
+        Commands::Slot { args, add, remove, list } => {
+            commands::cmd_slot(&args.image, args.block_size, add, remove, list)
+        }
         Commands::BenchKdf { kdf, pbkdf2_iters, argon2_memory, argon2_time, argon2_parallelism } => {
             let kdf_params = parse_kdf_params(&kdf, pbkdf2_iters, argon2_memory, argon2_time, argon2_parallelism)?;
             commands::cmd_bench_kdf(&kdf_params)
@@ -906,6 +951,12 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         }
         Commands::Fragstat { args, path } => {
             commands::cmd_fragstat(&args.image, args.block_size, &path)
+        }
+        Commands::Verify { args } => {
+            commands::cmd_verify(&args.image, args.block_size)
+        }
+        Commands::Wipe { image, passes } => {
+            commands::cmd_wipe(&image, passes)
         }
     }
 }

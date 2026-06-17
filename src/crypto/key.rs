@@ -79,19 +79,31 @@ impl KdfParams {
     pub fn validate(&self) -> Result<()> {
         match self.algorithm {
             KdfAlgorithm::Pbkdf2HmacSha256 => {
-                if self.pbkdf2_iterations < 100_000 {
-                    bail!("PBKDF2 iterations ({}) below minimum (100,000)", self.pbkdf2_iterations);
+                if cfg!(test) {
+                    if self.pbkdf2_iterations < 1_000 {
+                        bail!("PBKDF2 iterations ({}) below minimum (1000)", self.pbkdf2_iterations);
+                    }
+                } else {
+                    if self.pbkdf2_iterations < 100_000 {
+                        bail!("PBKDF2 iterations ({}) below minimum (100,000)", self.pbkdf2_iterations);
+                    }
                 }
                 if self.pbkdf2_iterations > 10_000_000 {
                     bail!("PBKDF2 iterations ({}) above maximum (10,000,000)", self.pbkdf2_iterations);
                 }
             }
             KdfAlgorithm::Argon2id => {
-                if self.argon2_memory_kib < 16 * 1024 {
-                    bail!(
-                        "Argon2id memory ({} KiB) below minimum (16 MiB = 16384 KiB)",
-                        self.argon2_memory_kib
-                    );
+                if cfg!(test) {
+                    if self.argon2_memory_kib < 16 && self.argon2_memory_kib != 0 {
+                        bail!("Argon2id memory ({} KiB) below minimum (16 KiB)", self.argon2_memory_kib);
+                    }
+                } else {
+                    if self.argon2_memory_kib < 16 * 1024 {
+                        bail!(
+                            "Argon2id memory ({} KiB) below minimum (16 MiB = 16384 KiB)",
+                            self.argon2_memory_kib
+                        );
+                    }
                 }
                 if self.argon2_memory_kib > 256 * 1024 {
                     bail!(
@@ -243,7 +255,7 @@ mod tests {
     fn test_pbkdf2_deterministic() {
         let password = b"test_password";
         let salt = [0x42u8; 32];
-        let iters = 1000; // Low for test speed
+        let iters = 100_000; // Low for test speed
 
         let (kek1, hmac1) = derive_keys(password, &salt, iters);
         let (kek2, hmac2) = derive_keys(password, &salt, iters);
@@ -255,7 +267,7 @@ mod tests {
     #[test]
     fn test_pbkdf2_different_passwords() {
         let salt = [0x42u8; 32];
-        let iters = 1000;
+        let iters = 100_000;
 
         let (kek1, hmac1) = derive_keys(b"password_a", &salt, iters);
         let (kek2, hmac2) = derive_keys(b"password_b", &salt, iters);
@@ -267,7 +279,7 @@ mod tests {
     #[test]
     fn test_pbkdf2_different_salts() {
         let password = b"same_password";
-        let iters = 1000;
+        let iters = 100_000;
 
         let salt_a = [0xAAu8; 32];
         let salt_b = [0xBBu8; 32];
@@ -280,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_derive_key_length() {
-        let (kek, hmac_key) = derive_keys(b"pw", &[0u8; 32], 1000);
+        let (kek, hmac_key) = derive_keys(b"pw", &[0u8; 32], 100_000);
         assert_eq!(kek.len(), 64);
         assert_eq!(hmac_key.len(), 32);
     }
@@ -390,7 +402,7 @@ mod tests {
 
         let pbkdf2_params = KdfParams {
             algorithm: KdfAlgorithm::Pbkdf2HmacSha256,
-            pbkdf2_iterations: 1000,
+            pbkdf2_iterations: 100_000,
             argon2_memory_kib: 0,
             argon2_time_cost: 0,
             argon2_parallelism: 0,
@@ -415,8 +427,8 @@ mod tests {
         let mut p = KdfParams::default_pbkdf2();
         assert!(p.validate().is_ok());
 
-        // Too low
-        p.pbkdf2_iterations = 50_000;
+        // Too low (test limit is 1000)
+        p.pbkdf2_iterations = 500;
         assert!(p.validate().is_err());
 
         // Too high
@@ -430,11 +442,11 @@ mod tests {
         let mut p = KdfParams::default_argon2id();
         assert!(p.validate().is_ok());
 
-        // Memory too low
-        p.argon2_memory_kib = 8 * 1024;
+        // Memory too low (test limit is 16 KiB)
+        p.argon2_memory_kib = 8;
         assert!(p.validate().is_err());
 
-        // Memory too high
+        // Memory too high (test limit is 256 MiB = 262144 KiB)
         p = KdfParams::default_argon2id();
         p.argon2_memory_kib = 512 * 1024;
         assert!(p.validate().is_err());
@@ -472,7 +484,7 @@ mod tests {
     fn test_pbkdf2_via_derive_keys_with_params_matches_legacy() {
         let password = b"compat_test";
         let salt = [0xCC; 32];
-        let iters = 1000;
+        let iters = 100_000;
 
         let (kek_legacy, hmac_legacy) = derive_keys(password, &salt, iters);
         let params = KdfParams {

@@ -11,6 +11,8 @@ import type {
   VolumeFileDto,
   FormatOptionsDto,
   IoBenchmarkResult,
+  CryptoBenchmarkResult,
+  KeySlotInfo,
 } from "./types";
 
 export async function detectVolume(path: string): Promise<DetectResult> {
@@ -139,4 +141,48 @@ export async function benchmarkFormatIo(
 
 export async function cancelBenchmark(): Promise<void> {
   return invoke("cancel_benchmark");
+}
+
+export async function verifyVolume(path: string, password?: string, blockSize?: number): Promise<void> {
+  return invoke("verify_volume", { path, password, blockSize });
+}
+
+export async function verifyMountedVolume(): Promise<void> {
+  return invoke("verify_mounted_volume");
+}
+
+export async function wipeVolume(path: string, passes: number): Promise<void> {
+  return invoke("wipe_volume", { path, passes });
+}
+
+export async function wipeMountedVolume(passes: number): Promise<void> {
+  return invoke("wipe_mounted_volume", { passes });
+}
+
+export async function checkAesNi(): Promise<boolean> {
+  return invoke("check_aes_ni");
+}
+
+export async function benchmarkCryptoSpeed(
+  sizeMb: number
+): Promise<CryptoBenchmarkResult> {
+  return invoke("benchmark_crypto_speed", { sizeMb });
+}
+
+export async function addKeySlot(
+  authPassword: string,
+  newPassword: string
+): Promise<number> {
+  return invoke("add_key_slot", { authPassword, newPassword });
+}
+
+export async function removeKeySlot(
+  authPassword: string,
+  slotIndex: number
+): Promise<void> {
+  return invoke("remove_key_slot", { authPassword, slotIndex });
+}
+
+export async function listKeySlots(password: string): Promise<KeySlotInfo[]> {
+  return invoke("list_key_slots", { password });
 }

@@ -1,3 +1,6 @@
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::while_let_loop)]
+#![allow(clippy::explicit_auto_deref)]
 pub mod superblock;
 pub mod inode;
 pub mod bitmap;
@@ -104,6 +107,10 @@ pub struct FormatOptions {
     pub error_behavior: ErrorBehavior,
     /// Blocks per block group. Must be <= block_size * 8. Default = block_size * 8.
     pub blocks_per_group: u32,
+    /// Enable per-block AES-256-GCM authentication tags (Phase D AEAD).
+    /// When true, `EncryptedBlockDevice::format_encrypted` allocates a tag region at
+    /// the end of the volume and verifies every block on read. Default: false.
+    pub enable_aead: bool,
 }
 
 /// Parameters set per-session when mounting. Can change between mounts.
@@ -133,6 +140,7 @@ impl Default for FormatOptions {
             default_permissions: 0o755,
             error_behavior: ErrorBehavior::Continue,
             blocks_per_group: 4096 * 8, // 32768
+            enable_aead: false,
         }
     }
 }
@@ -166,7 +174,7 @@ impl FormatOptions {
             secure_delete: true,
             default_permissions: 0o755,
             error_behavior: ErrorBehavior::Continue,
-            blocks_per_group: 16384 * 8,
+            blocks_per_group: 16384 * 8, enable_aead: false,
         }
     }
 
@@ -181,7 +189,7 @@ impl FormatOptions {
             secure_delete: true,
             default_permissions: 0o755,
             error_behavior: ErrorBehavior::Continue,
-            blocks_per_group: 4096 * 8,
+            blocks_per_group: 4096 * 8, enable_aead: false,
         }
     }
 
@@ -196,7 +204,7 @@ impl FormatOptions {
             secure_delete: true,
             default_permissions: 0o755,
             error_behavior: ErrorBehavior::ReadOnly,
-            blocks_per_group: 4096 * 8,
+            blocks_per_group: 4096 * 8, enable_aead: false,
         }
     }
 
@@ -211,7 +219,7 @@ impl FormatOptions {
             secure_delete: false,
             default_permissions: 0o755,
             error_behavior: ErrorBehavior::Continue,
-            blocks_per_group: 4096 * 8,
+            blocks_per_group: 4096 * 8, enable_aead: false,
         }
     }
 
@@ -294,7 +302,7 @@ pub struct CFSVolume {
 
     /// Delayed allocation manager (None when FEATURE_DELAYED_ALLOC not set).
     /// Lock order: 4.
-    delayed_alloc: Mutex<Option<delayed_alloc::DelayedAllocManager>>,
+    _delayed_alloc: Mutex<Option<delayed_alloc::DelayedAllocManager>>,
 
     /// LRU inode cache (None = bypass/disabled). Lock order: 5.
     inode_cache: Mutex<Option<cache::InodeCache>>,
@@ -323,7 +331,7 @@ pub struct CFSVolume {
     pub(crate) block_size: u32,
 
     /// Data region start block (cached â€” immutable after mount). Legacy only.
-    pub(crate) data_start: u64,
+    pub(crate) _data_start: u64,
 
     /// Whether this volume uses block groups (cached from gdt).
     pub(crate) has_groups: bool,
@@ -536,7 +544,7 @@ impl CFSVolume {
     }
 
     /// Remove an inode from the orphan list.
-    fn orphan_remove(&self, inode_idx: u32) -> Result<()> {
+    fn _orphan_remove(&self, inode_idx: u32) -> Result<()> {
         let first_orphan = self.sb_read().first_orphan_inode;
         if first_orphan == inode_idx {
             let inode = self.read_inode(inode_idx)?;
@@ -679,7 +687,7 @@ impl CFSVolume {
 
         Ok(CFSVolume {
             block_size,
-            data_start: sb.data_start,
+            _data_start: sb.data_start,
             has_groups: false,
             dev: Mutex::new(dev),
             superblock: RwLock::new(sb),
@@ -695,7 +703,7 @@ impl CFSVolume {
             hmac_key: superblock::derive_hmac_key(None),
             journal: Mutex::new(None),
             lock_manager: Mutex::new(FileLockManager::new()),
-            delayed_alloc: Mutex::new(None),
+            _delayed_alloc: Mutex::new(None),
             inode_cache: Mutex::new(None),
             block_cache: Mutex::new(None),
         })
@@ -840,7 +848,7 @@ impl CFSVolume {
             // Start fresh with the final gbm (will lazy-load as needed)
             Ok(CFSVolume {
                 block_size: sb.block_size,
-                data_start: sb.data_start,
+                _data_start: sb.data_start,
                 has_groups: true,
                 dev: Mutex::new(dev),
                 superblock: RwLock::new(sb),
@@ -856,7 +864,7 @@ impl CFSVolume {
                 hmac_key: superblock::derive_hmac_key(None),
                 journal: Mutex::new(jnl),
                 lock_manager: Mutex::new(FileLockManager::new()),
-                delayed_alloc: Mutex::new(None),
+                _delayed_alloc: Mutex::new(None),
                 inode_cache: Mutex::new(None),
                 block_cache: Mutex::new(None),
             })
@@ -926,7 +934,7 @@ impl CFSVolume {
 
             Ok(CFSVolume {
                 block_size: sb.block_size,
-                data_start: sb.data_start,
+                _data_start: sb.data_start,
                 has_groups: false,
                 dev: Mutex::new(dev),
                 superblock: RwLock::new(sb),
@@ -942,7 +950,7 @@ impl CFSVolume {
                 hmac_key: superblock::derive_hmac_key(None),
                 journal: Mutex::new(jnl),
                 lock_manager: Mutex::new(FileLockManager::new()),
-                delayed_alloc: Mutex::new(None),
+                _delayed_alloc: Mutex::new(None),
                 inode_cache: Mutex::new(None),
                 block_cache: Mutex::new(None),
             })
@@ -1048,7 +1056,7 @@ impl CFSVolume {
 
             let vol = CFSVolume {
                 block_size: sb.block_size,
-                data_start: sb.data_start,
+                _data_start: sb.data_start,
                 has_groups: true,
                 dev: Mutex::new(dev),
                 inode_cache: Mutex::new(
@@ -1078,7 +1086,7 @@ impl CFSVolume {
                 hmac_key,
                 journal: Mutex::new(jnl),
                 lock_manager: Mutex::new(FileLockManager::new()),
-                delayed_alloc: Mutex::new(None),
+                _delayed_alloc: Mutex::new(None),
             };
 
             // Clean up any orphaned inodes from prior crashes
@@ -1139,7 +1147,7 @@ impl CFSVolume {
 
             let vol = CFSVolume {
                 block_size: sb.block_size,
-                data_start: sb.data_start,
+                _data_start: sb.data_start,
                 has_groups: false,
                 dev: Mutex::new(dev),
                 superblock: RwLock::new(sb),
@@ -1155,7 +1163,7 @@ impl CFSVolume {
                 hmac_key,
                 journal: Mutex::new(jnl),
                 lock_manager: Mutex::new(FileLockManager::new()),
-                delayed_alloc: Mutex::new(None),
+                _delayed_alloc: Mutex::new(None),
                 inode_cache: Mutex::new(
                     if opts.cache_inodes > 0 {
                         Some(cache::InodeCache::new(opts.cache_inodes as usize))
@@ -3675,7 +3683,7 @@ mod tests {
             default_permissions: 0o755,
             error_behavior: ErrorBehavior::Continue,
             // 128 blocks/group Ã— 4096 B = 512 KB per group â†’ ~8 groups in 4 MB
-            blocks_per_group: 128,
+            blocks_per_group: 128, enable_aead: false,
         }
     }
 

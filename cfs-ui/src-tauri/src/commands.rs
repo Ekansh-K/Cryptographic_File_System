@@ -110,7 +110,7 @@ pub struct VolumeFileDto {
 }
 
 /// DTO for format options passed from the frontend.
-/// All fields are `Option` â€” unset fields use defaults.
+/// All fields are `Option` — unset fields use defaults.
 /// If `preset` is set, the preset is applied first, then individual overrides.
 #[derive(serde::Deserialize, Clone, Debug)]
 pub struct FormatOptionsDto {
@@ -124,6 +124,7 @@ pub struct FormatOptionsDto {
     pub error_behavior: Option<String>,
     pub blocks_per_group: Option<u32>,
     pub preset: Option<String>,
+    pub enable_aead: Option<bool>,
 }
 
 impl FormatOptionsDto {
@@ -177,15 +178,21 @@ fn default_volumes_dir() -> String {
     format!("{}\\CFS Volumes", base)
 }
 
-/// Quick magic-byte check: returns Some(true)=encrypted, Some(false)=plain CFS, None=not CFS.
+/// For v3 volumes the header is fully encrypted — any non-empty file could be a
+/// CFS volume. Returns Some(true) for any file >= 4096 bytes (assume encrypted),
+/// Some(false) for plain CFS (legacy CFS1 magic), None for clearly non-CFS.
 fn detect_cfs_magic(path: &Path) -> Option<bool> {
+    let meta = std::fs::metadata(path).ok()?;
+    let size = meta.len();
+    if size < 4096 {
+        return None;
+    }
     let mut f = std::fs::File::open(path).ok()?;
     let mut magic = [0u8; 4];
     f.read_exact(&mut magic).ok()?;
     match &magic {
-        b"CFS1" => Some(false),
-        b"CFSE" => Some(true),
-        _ => None,
+        b"CFS1" => Some(false), // legacy plaintext volume
+        _ => Some(true),        // v3: fully encrypted, treat as encrypted
     }
 }
 
@@ -266,7 +273,7 @@ pub fn create_volume(
     // Build format options from DTO, applying preset + overrides
     let dto_blocks_per_group = format_options.as_ref().and_then(|d| d.blocks_per_group);
     let mut format_opts = match format_options {
-        Some(dto) => dto.to_format_options()?,
+        Some(ref dto) => dto.to_format_options()?,
         None => FormatOptions::default(),
     };
     // CLI-level block_size param takes precedence for backward compat
@@ -305,25 +312,27 @@ pub fn create_volume(
         _ => KdfParams {
             algorithm: KdfAlgorithm::Argon2id,
             pbkdf2_iterations: 0,
-            argon2_memory_kib: argon2_memory_mib.unwrap_or(32) * 1024,
-            argon2_time_cost: argon2_time.unwrap_or(2),
-            argon2_parallelism: argon2_parallelism.unwrap_or(1),
+            argon2_memory_kib: argon2_memory_mib.unwrap_or(64) * 1024,
+            argon2_time_cost: argon2_time.unwrap_or(3),
+            argon2_parallelism: argon2_parallelism.unwrap_or(2),
         },
     };
-
-    // Copy password bytes so we can zeroize after use
-    let mut pw_bytes = password.as_bytes().to_vec();
 
     // Create backing file
     let dev = FileBlockDevice::open(Path::new(path), Some(size_bytes))
         .map_err(|e| format!("Cannot create file: {e}"))?;
 
+    // Copy password bytes so we can zeroize after use
+    let mut pw_bytes = password.as_bytes().to_vec();
+
     // Always create encrypted (UI constraint)
+    let enable_aead = format_options.as_ref().and_then(|d| d.enable_aead).unwrap_or(false);
     let enc_result = EncryptedBlockDevice::format_encrypted(
         Box::new(dev),
         &pw_bytes,
         &kdf_params,
         bs,
+        enable_aead,
     );
     pw_bytes.zeroize();
     let enc = enc_result.map_err(|e| format!("Encryption failed: {e}"))?;
@@ -387,7 +396,7 @@ pub fn unlock_volume(
         CFSVolume::mount(Box::new(enc), bs)
             .map_err(|e| format!("Mount failed: {e}"))?
     } else {
-        // Plain volume â€” password is ignored; still zeroize the copy
+        // Plain volume — password is ignored; still zeroize the copy
         pw_bytes.zeroize();
         CFSVolume::mount(dev, bs)
             .map_err(|e| format!("Mount failed: {e}"))?
@@ -457,7 +466,7 @@ pub fn get_status(state: State<'_, AppState>) -> Result<AppStatusDto, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Phase F2 â€” Directory browsing
+// Phase F2 — Directory browsing
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
@@ -521,7 +530,7 @@ pub fn stat_entry(state: State<'_, AppState>, path: &str) -> Result<InodeDto, St
 }
 
 // ---------------------------------------------------------------------------
-// Phase F3 â€” File preview
+// Phase F3 — File preview
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
@@ -600,7 +609,7 @@ pub fn list_raw_partitions() -> Result<Vec<RawPartitionInfo>, String> {
         };
 
         if ok == 0 {
-            // GetVolumeInformation failed â€” likely RAW or inaccessible partition
+            // GetVolumeInformation failed — likely RAW or inaccessible partition
             // Try to open it and check for CFS magic
             let mut is_cfs = false;
             let mut is_encrypted = false;
@@ -608,13 +617,15 @@ pub fn list_raw_partitions() -> Result<Vec<RawPartitionInfo>, String> {
 
             if let Ok(mut dev) = RawPartitionBlockDevice::open(&device_path) {
                 size_bytes = dev.size();
-                // Try to read magic bytes
+                // In v3, any non-empty device could be a CFS volume
+                // (no plaintext magic). We mark it as potentially encrypted.
                 let mut buf = vec![0u8; 512];
                 if dev.read(0, &mut buf).is_ok() {
                     if &buf[0..4] == b"CFS1" {
                         is_cfs = true;
                         is_encrypted = false;
-                    } else if &buf[0..4] == b"CFSE" {
+                    } else if size_bytes >= 4096 {
+                        // v3: no plaintext magic — assume it could be CFS encrypted
                         is_cfs = true;
                         is_encrypted = true;
                     }
@@ -637,7 +648,7 @@ pub fn list_raw_partitions() -> Result<Vec<RawPartitionInfo>, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Phase F4 â€” Mount integration
+// Phase F4 — Mount integration
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
@@ -806,9 +817,9 @@ pub fn benchmark_kdf(
         _ => KdfParams {
             algorithm: KdfAlgorithm::Argon2id,
             pbkdf2_iterations: 0,
-            argon2_memory_kib: argon2_memory_mib.unwrap_or(32) * 1024,
-            argon2_time_cost: argon2_time.unwrap_or(2),
-            argon2_parallelism: argon2_parallelism.unwrap_or(1),
+            argon2_memory_kib: argon2_memory_mib.unwrap_or(64) * 1024,
+            argon2_time_cost: argon2_time.unwrap_or(3),
+            argon2_parallelism: argon2_parallelism.unwrap_or(2),
         },
     };
     let duration = cfs_io::crypto::benchmark_kdf(&params)
@@ -858,7 +869,7 @@ pub fn benchmark_format_io(
     runs: u32,
 ) -> Result<IoBenchmarkResult, String> {
     if size_bytes == 0 {
-        return Err("Benchmark size must be greater than 0".into());
+        return Err("Benchmark size must be greater than 0".into())
     }
     let runs = runs.max(1);
 
@@ -993,4 +1004,329 @@ pub fn benchmark_format_io(
         read_time_ms: avg_read_us / 1000.0,
         sync_time_ms: avg_sync_us / 1000.0,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Security Commands (Phase A Integration)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn verify_volume(path: &str, password: Option<&str>, block_size: Option<u32>) -> Result<(), String> {
+    let bs = block_size.unwrap_or(DEFAULT_BLOCK_SIZE);
+    let is_device = path.starts_with("\\\\.\\") || path.starts_with("//./");
+
+    let mut dev: Box<dyn cfs_io::block_device::CFSBlockDevice> = if is_device {
+        Box::new(RawPartitionBlockDevice::open(path).map_err(|e| format!("Cannot open device: {e}"))?)
+    } else {
+        let p = Path::new(path);
+        if !p.exists() {
+            return Err("File not found".into());
+        }
+        Box::new(FileBlockDevice::open(p, None).map_err(|e| format!("Cannot open file: {e}"))?)
+    };
+
+    let is_encrypted = crypto::is_encrypted_device(&mut *dev).map_err(|e| format!("Cannot read volume: {e}"))?;
+    
+    let vol = if is_encrypted {
+        let pwd = password.ok_or_else(|| "Password is required to verify an encrypted volume. Enter your password in the Unlock field first.".to_string())?;
+        let mut pw_bytes = pwd.as_bytes().to_vec();
+        let enc_result = EncryptedBlockDevice::open_encrypted(dev, &pw_bytes);
+        pw_bytes.zeroize();
+        let enc = enc_result.map_err(|e| format!("Wrong password or corrupted header: {e}"))?;
+        CFSVolume::mount(Box::new(enc), bs).map_err(|e| format!("Mount failed: {e}"))?
+    } else {
+        CFSVolume::mount(dev, bs).map_err(|e| format!("Mount failed: {e}"))?
+    };
+
+    let sb = vol.superblock();
+    if &sb.magic != b"CFS1" {
+        return Err(format!("Invalid superblock magic: {:?}", sb.magic));
+    }
+    if sb.total_blocks == 0 || sb.free_blocks > sb.total_blocks {
+        return Err("Corrupt superblock block counts".to_string());
+    }
+    
+    vol.list_dir("/").map_err(|e| format!("Root directory read failed: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn verify_mounted_volume(state: State<'_, AppState>) -> Result<(), String> {
+    let mut st = state.inner().volume.lock().unwrap();
+    if let Some(open_vol) = &mut *st {
+        open_vol.vol.list_dir("/").map_err(|e| format!("Root directory read failed: {}", e))?;
+        Ok(())
+    } else {
+        Err("No volume is currently unlocked".into())
+    }
+}
+
+#[tauri::command]
+pub fn wipe_mounted_volume(state: State<'_, AppState>, passes: u32) -> Result<(), String> {
+    let path = {
+        let mut st = state.inner().volume.lock().unwrap();
+        if let Some(open_vol) = &*st {
+            let p = open_vol.path.clone();
+            // Drop the volume to release the exclusive file lock
+            *st = None;
+            p
+        } else {
+            return Err("No volume is currently unlocked".into());
+        }
+    };
+    
+    cfs_io::cli::commands::cmd_wipe(&path, passes).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn wipe_volume(path: &str, passes: u32) -> Result<(), String> {
+    cfs_io::cli::commands::cmd_wipe(path, passes)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn check_aes_ni() -> bool {
+    cfs_io::crypto::aes_ni_available()
+}
+
+// ---------------------------------------------------------------------------
+// Key Slot Management Commands (Phase C)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+pub struct KeySlotInfoDto {
+    pub index: usize,
+    pub is_active: bool,
+    pub kdf_algorithm: String,
+    pub argon2_memory_mib: Option<u32>,
+    pub argon2_time_cost: Option<u32>,
+    pub argon2_parallelism: Option<u32>,
+    pub pbkdf2_iterations: Option<u32>,
+}
+
+/// List all key slots on the currently open encrypted volume.
+#[tauri::command]
+pub fn list_key_slots(
+    state: State<'_, AppState>,
+    password: &str,
+) -> Result<Vec<KeySlotInfoDto>, String> {
+    let guard = state.volume.lock().map_err(|e| e.to_string())?;
+    let ov = guard.as_ref().ok_or("No volume loaded")?;
+    if !ov.is_encrypted {
+        return Err("Volume is not encrypted".into());
+    }
+    let path = ov.path.clone();
+    drop(guard);
+    let p = Path::new(&path);
+    let mut dev: Box<dyn cfs_io::block_device::CFSBlockDevice> = if path.starts_with("\\\\.\\")
+        || path.starts_with("//./") {
+        Box::new(RawPartitionBlockDevice::open(&path).map_err(|e| e.to_string())?)
+    } else {
+        Box::new(FileBlockDevice::open(p, None).map_err(|e| e.to_string())?)
+    };
+    let slots = cfs_io::crypto::list_key_slots(
+        &mut *dev, password.as_bytes(), DEFAULT_BLOCK_SIZE,
+    ).map_err(|e| e.to_string())?;
+    Ok(slots.into_iter().map(|s| KeySlotInfoDto {
+        index: s.index,
+        is_active: s.is_active,
+        kdf_algorithm: s.kdf_algorithm,
+        argon2_memory_mib: s.argon2_memory_mib,
+        argon2_time_cost: s.argon2_time_cost,
+        argon2_parallelism: s.argon2_parallelism,
+        pbkdf2_iterations: s.pbkdf2_iterations,
+    }).collect())
+}
+
+/// Add a new key slot on the currently open encrypted volume.
+#[tauri::command]
+pub fn add_key_slot(
+    state: State<'_, AppState>,
+    auth_password: &str,
+    new_password: &str,
+) -> Result<usize, String> {
+    if new_password.len() < 8 {
+        return Err("New password must be at least 8 characters".into());
+    }
+    let guard = state.volume.lock().map_err(|e| e.to_string())?;
+    let ov = guard.as_ref().ok_or("No volume loaded")?;
+    if !ov.is_encrypted {
+        return Err("Volume is not encrypted".into());
+    }
+    let path = ov.path.clone();
+    drop(guard);
+    let p = Path::new(&path);
+    let mut dev: Box<dyn cfs_io::block_device::CFSBlockDevice> = if path.starts_with("\\\\.\\")
+        || path.starts_with("//./") {
+        Box::new(RawPartitionBlockDevice::open(&path).map_err(|e| e.to_string())?)
+    } else {
+        Box::new(FileBlockDevice::open(p, None).map_err(|e| e.to_string())?)
+    };
+    let kdf = KdfParams {
+        algorithm: KdfAlgorithm::Argon2id,
+        pbkdf2_iterations: 0,
+        argon2_memory_kib: 64 * 1024,
+        argon2_time_cost: 3,
+        argon2_parallelism: 2,
+    };
+    let idx = cfs_io::crypto::add_key_slot(
+        &mut *dev, auth_password.as_bytes(), new_password.as_bytes(), kdf, DEFAULT_BLOCK_SIZE,
+    ).map_err(|e| e.to_string())?;
+    Ok(idx)
+}
+
+/// Remove a key slot from the currently open encrypted volume.
+#[tauri::command]
+pub fn remove_key_slot(
+    state: State<'_, AppState>,
+    auth_password: &str,
+    slot_index: usize,
+) -> Result<(), String> {
+    let guard = state.volume.lock().map_err(|e| e.to_string())?;
+    let ov = guard.as_ref().ok_or("No volume loaded")?;
+    if !ov.is_encrypted {
+        return Err("Volume is not encrypted".into());
+    }
+    let path = ov.path.clone();
+    drop(guard);
+    let p = Path::new(&path);
+    let mut dev: Box<dyn cfs_io::block_device::CFSBlockDevice> = if path.starts_with("\\\\.\\")
+        || path.starts_with("//./") {
+        Box::new(RawPartitionBlockDevice::open(&path).map_err(|e| e.to_string())?)
+    } else {
+        Box::new(FileBlockDevice::open(p, None).map_err(|e| e.to_string())?)
+    };
+    cfs_io::crypto::remove_key_slot(
+        &mut *dev, auth_password.as_bytes(), slot_index, DEFAULT_BLOCK_SIZE,
+    ).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Crypto Speed Benchmark (Phase D)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+pub struct CryptoBenchmarkResult {
+    pub size_bytes: u64,
+    pub size_label: String,
+    pub xts_encrypt_mbps: f64,
+    pub xts_decrypt_mbps: f64,
+    pub xts_aead_encrypt_mbps: f64,
+    pub xts_aead_decrypt_mbps: f64,
+    pub aead_overhead_encrypt_pct: f64,
+    pub aead_overhead_decrypt_pct: f64,
+    pub aes_ni_available: bool,
+}
+
+/// Benchmark AES-XTS encryption/decryption speed with and without AEAD.
+/// Operates entirely in RAM — no disk I/O.
+#[tauri::command]
+pub fn benchmark_crypto_speed(size_mb: u64) -> Result<CryptoBenchmarkResult, String> {
+    use std::time::Instant;
+    use cfs_io::crypto::xts::XtsCipher;
+    use cfs_io::crypto::aead::{compute_block_tag, verify_block_tag};
+
+    let size_mb = size_mb.clamp(1, 512);
+    let eu: usize = 4096;
+    let size_bytes = size_mb * 1024 * 1024;
+    let num_blocks = (size_bytes as usize) / eu;
+
+    // Build a random 64-byte XTS key and 32-byte tag key
+    use rand::RngCore;
+    let mut xts_key = [0u8; 64];
+    rand::rngs::OsRng.fill_bytes(&mut xts_key);
+    let mut tag_key = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut tag_key);
+
+    let cipher = XtsCipher::new(&xts_key, eu as u32);
+
+    // Allocate a buffer of random plaintext
+    let mut buf = vec![0u8; size_bytes as usize];
+    rand::rngs::OsRng.fill_bytes(&mut buf);
+
+    // --- XTS encrypt (no AEAD) ---
+    let t0 = Instant::now();
+    cipher.encrypt_blocks_parallel(0, &mut buf);
+    let xts_enc_secs = t0.elapsed().as_secs_f64();
+
+    // --- XTS decrypt (no AEAD) ---
+    let t1 = Instant::now();
+    cipher.decrypt_blocks_parallel(0, &mut buf);
+    let xts_dec_secs = t1.elapsed().as_secs_f64();
+
+    // --- XTS encrypt + AEAD tag compute ---
+    let t2 = Instant::now();
+    cipher.encrypt_blocks_parallel(0, &mut buf);
+    for i in 0..num_blocks {
+        let chunk = &buf[i * eu..(i + 1) * eu];
+        let _ = compute_block_tag(&tag_key, i as u64, chunk);
+    }
+    let xts_aead_enc_secs = t2.elapsed().as_secs_f64();
+
+    // --- XTS decrypt + AEAD tag verify ---
+    // Pre-compute tags so verify doesn't fail
+    let tags: Vec<[u8; 16]> = (0..num_blocks)
+        .map(|i| compute_block_tag(&tag_key, i as u64, &buf[i * eu..(i + 1) * eu]))
+        .collect();
+    let t3 = Instant::now();
+    for i in 0..num_blocks {
+        let chunk = &buf[i * eu..(i + 1) * eu];
+        let _ = verify_block_tag(&tag_key, i as u64, chunk, &tags[i]);
+    }
+    cipher.decrypt_blocks_parallel(0, &mut buf);
+    let xts_aead_dec_secs = t3.elapsed().as_secs_f64();
+
+    let mb = size_bytes as f64 / (1024.0 * 1024.0);
+    let xts_enc = if xts_enc_secs > 0.0 { mb / xts_enc_secs } else { 0.0 };
+    let xts_dec = if xts_dec_secs > 0.0 { mb / xts_dec_secs } else { 0.0 };
+    let aead_enc = if xts_aead_enc_secs > 0.0 { mb / xts_aead_enc_secs } else { 0.0 };
+    let aead_dec = if xts_aead_dec_secs > 0.0 { mb / xts_aead_dec_secs } else { 0.0 };
+
+    let overhead_enc = if xts_enc > 0.0 { (xts_enc - aead_enc) / xts_enc * 100.0 } else { 0.0 };
+    let overhead_dec = if xts_dec > 0.0 { (xts_dec - aead_dec) / xts_dec * 100.0 } else { 0.0 };
+
+    let label = if size_mb >= 1024 {
+        format!("{} GiB", size_mb / 1024)
+    } else {
+        format!("{size_mb} MiB")
+    };
+
+    Ok(CryptoBenchmarkResult {
+        size_bytes,
+        size_label: label,
+        xts_encrypt_mbps: xts_enc,
+        xts_decrypt_mbps: xts_dec,
+        xts_aead_encrypt_mbps: aead_enc,
+        xts_aead_decrypt_mbps: aead_dec,
+        aead_overhead_encrypt_pct: overhead_enc,
+        aead_overhead_decrypt_pct: overhead_dec,
+        aes_ni_available: cfs_io::crypto::aes_ni_available(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_options_dto_preset() {
+        let dto = FormatOptionsDto {
+            block_size: None,
+            inode_size: None,
+            inode_ratio: None,
+            journal_percent: None,
+            volume_label: None,
+            secure_delete: None,
+            default_permissions: None,
+            error_behavior: None,
+            blocks_per_group: None,
+            preset: Some("minimal".to_string()),
+            enable_aead: None,
+        };
+        let opts = dto.to_format_options().unwrap();
+        assert_eq!(opts.journal_percent, 0.0);
+        assert_eq!(opts.secure_delete, false);
+        assert_eq!(opts.inode_size, 128);
+    }
 }

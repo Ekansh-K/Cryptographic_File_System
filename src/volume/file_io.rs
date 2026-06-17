@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+﻿use anyhow::{bail, Result};
 use std::cmp::min;
 use std::collections::VecDeque;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -814,7 +814,7 @@ mod tests {
         let mut dg = vol.dev();
 
         let blocks = alloc::alloc_blocks(&mut *bm, &mut *sg, 2).unwrap();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let phys0 = ds + blocks[0];
         let phys9 = ds + blocks[1];
 
@@ -842,7 +842,7 @@ mod tests {
 
         // Allocate a data block
         let blocks = alloc::alloc_blocks(&mut *bm, &mut *sg, 1).unwrap();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let phys = ds + blocks[0];
 
         assert_eq!(inode.indirect_block, 0);
@@ -871,7 +871,7 @@ mod tests {
         let mut dg = vol.dev();
 
         let blocks = alloc::alloc_blocks(&mut *bm, &mut *sg, 1).unwrap();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let phys = ds + blocks[0];
 
         assert_eq!(inode.double_indirect, 0);
@@ -914,7 +914,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
         write_data(
             &mut **dg, &mut ba, &mut *sg,
@@ -938,7 +938,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
         write_data(
             &mut **dg, &mut ba, &mut *sg,
@@ -962,7 +962,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         // Write at offset 2048 (mid-block)
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
         write_data(
@@ -987,7 +987,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
         write_data(
             &mut **dg, &mut ba, &mut *sg,
@@ -1012,7 +1012,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let initial_free = sg.free_blocks;
 
         // Write 10 KB (3 blocks)
@@ -1046,7 +1046,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
         write_data(
             &mut **dg, &mut ba, &mut *sg,
@@ -1076,7 +1076,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let initial_free = sg.free_blocks;
 
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };

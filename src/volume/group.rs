@@ -530,7 +530,7 @@ impl GroupBitmapManager {
     }
 
     /// Number of data blocks in a given group.
-    fn data_blocks_in_group(&self, group_idx: u32, desc: &GroupDescriptor) -> u32 {
+    fn data_blocks_in_group(&self, _group_idx: u32, desc: &GroupDescriptor) -> u32 {
         let total_in_group = desc.bg_blocks_count as u32;
         total_in_group.saturating_sub(self.overhead_per_group)
     }

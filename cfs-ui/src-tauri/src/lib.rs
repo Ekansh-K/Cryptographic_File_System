@@ -35,6 +35,16 @@ pub fn run() {
             commands::benchmark_kdf,
             commands::benchmark_format_io,
             commands::cancel_benchmark,
+            commands::verify_volume,
+            commands::verify_mounted_volume,
+            commands::wipe_volume,
+            commands::wipe_mounted_volume,
+            commands::check_aes_ni,
+            // Phase B2 / C / D — v3 security features
+            commands::benchmark_crypto_speed,
+            commands::add_key_slot,
+            commands::remove_key_slot,
+            commands::list_key_slots,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

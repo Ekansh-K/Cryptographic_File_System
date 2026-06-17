@@ -926,7 +926,7 @@ pub fn should_convert_to_htree(dir_inode: &Inode, sb: &Superblock) -> bool {
 mod tests {
     use super::*;
     use crate::block_device::FileBlockDevice;
-    use crate::volume::{CFSVolume, INODE_DIR, FormatOptions, ErrorBehavior};
+    use crate::volume::{CFSVolume, FormatOptions, ErrorBehavior};
     use tempfile::NamedTempFile;
 
     // -----------------------------------------------------------------------
@@ -1228,13 +1228,14 @@ mod tests {
         let opts = FormatOptions {
             block_size: 4096,
             inode_size: 256,
-            inode_ratio: 4096,
+            inode_ratio: 16384,
             journal_percent: 0.0,
+            volume_label: "htree_test".to_string(),
             secure_delete: false,
-            volume_label: String::new(),
             default_permissions: 0o755,
             error_behavior: ErrorBehavior::Continue,
             blocks_per_group: 4096 * 8,
+            enable_aead: false,
         };
         CFSVolume::format_v3(Box::new(dev), &opts).unwrap();
 

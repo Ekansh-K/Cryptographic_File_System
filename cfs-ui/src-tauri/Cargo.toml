@@ -18,6 +18,7 @@ serde_json = "1"
 anyhow = "1"
 base64 = "0.22"
 zeroize = "1"
+rand = { version = "0.8", features = ["getrandom"] }
 cfs-io = { path = "../.." }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
@@ -27,4 +28,3 @@ windows-sys = { version = "0.61", features = [
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 winfsp = "0.12"
-

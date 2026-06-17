@@ -101,6 +101,7 @@ export interface FormatOptionsDto {
   error_behavior?: string;
   blocks_per_group?: number;
   preset?: string;
+  enable_aead?: boolean;
 }
 
 /** Matches the Rust IoBenchmarkResult DTO */
@@ -112,4 +113,34 @@ export interface IoBenchmarkResult {
   write_time_ms: number;
   read_time_ms: number;
   sync_time_ms: number;
+}
+
+/** AES-256-GCM AEAD information about a volume */
+export interface AeadInfo {
+  enabled: boolean;
+  overhead_pct: number; // ~0.39%
+}
+
+/** Info about a single key slot */
+export interface KeySlotInfo {
+  index: number;
+  is_active: boolean;
+  kdf_algorithm: string; // "argon2id" | "pbkdf2"
+  argon2_memory_mib?: number;
+  argon2_time_cost?: number;
+  argon2_parallelism?: number;
+  pbkdf2_iterations?: number;
+}
+
+/** Result from crypto speed benchmark */
+export interface CryptoBenchmarkResult {
+  size_bytes: number;
+  size_label: string;
+  xts_encrypt_mbps: number;
+  xts_decrypt_mbps: number;
+  xts_aead_encrypt_mbps: number;
+  xts_aead_decrypt_mbps: number;
+  aead_overhead_encrypt_pct: number;
+  aead_overhead_decrypt_pct: number;
+  aes_ni_available: boolean;
 }

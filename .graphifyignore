@@ -1,0 +1,9 @@
+/target
+.vscode
+.github
+.claude
+*.img
+
+dist/
+node_modules/
+*.log

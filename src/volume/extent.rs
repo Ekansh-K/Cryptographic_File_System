@@ -9,6 +9,9 @@
 //! When the tree needs more space, it spills to on-disk blocks, creating a
 //! B-tree-like structure up to depth 5.
 
+#![allow(clippy::explicit_auto_deref)]
+#![allow(clippy::while_let_loop)]
+
 use anyhow::{bail, Result};
 
 use crate::block_device::CFSBlockDevice;
@@ -647,7 +650,7 @@ fn extent_insert_leaf(
     block_size: u32,
 ) -> Result<()> {
     let logical_block = new_ext.ee_block;
-    let length = new_ext.ee_len;
+    let _length = new_ext.ee_len;
 
     // Read root
     let (root_header, root_entries) = read_inode_extent_root(inode)?;
@@ -1861,7 +1864,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
 
         extent_insert(
@@ -1891,7 +1894,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
 
         // Insert 7 non-contiguous extents
@@ -1917,7 +1920,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
 
         // Insert 8 non-contiguous extents (7 fits in root, 8th triggers grow)
@@ -1948,7 +1951,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
 
         // Insert [0..10) @ 100, then [10..20) @ 110 — should merge
@@ -1979,7 +1982,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
 
         // [0..10) @ 100, [10..20) @ 200 — same logical range but physical gap
@@ -2002,7 +2005,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
 
         // Insert 50 scattered extents
@@ -2032,7 +2035,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
 
         // Manually set depth to EXTENT_MAX_DEPTH
@@ -2060,7 +2063,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
 
         // Insert [0..10) @ 100
@@ -2173,7 +2176,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
 
         let blocks1 = alloc::alloc_blocks(&mut *bm, &mut *sg, 10).unwrap();
         let blocks2 = alloc::alloc_blocks(&mut *bm, &mut *sg, 5).unwrap();
@@ -2222,7 +2225,7 @@ mod tests {
         let mut sg = vol.sb_write();
         let mut bm = vol.bitmap_lock();
         let mut dg = vol.dev();
-        let ds = vol.data_start;
+        let ds = vol._data_start;
         let mut ba = BlockAlloc::Legacy { bitmap: &mut *bm, data_start: ds };
 
         // Insert 3 extents

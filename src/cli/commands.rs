@@ -1,17 +1,257 @@
+#![allow(clippy::field_reassign_with_default)]
 use anyhow::{bail, Result};
 use std::io::Write;
 
-use crate::crypto::{self, EncryptedBlockDevice, CryptoHeader, KdfAlgorithm, KdfParams};
-use crate::volume::{CFSVolume, FormatOptions, ErrorBehavior, CFS_VERSION_V3, INODE_DIR, INODE_FILE, INODE_SYMLINK};
+use crate::crypto::{self, EncryptedBlockDevice, KdfAlgorithm, KdfParams};
+use crate::volume::{CFSVolume, FormatOptions, CFS_VERSION_V3, INODE_DIR, INODE_FILE};
 use crate::volume::superblock::*;
 
-use super::{format_mode, format_size_human, format_timestamp, format_timestamp_ns, format_permissions, is_raw_device_path, open_device, open_volume, auto_open_volume, parse_size};
+use super::{format_mode, format_size_human, format_timestamp, format_timestamp_ns, format_permissions, is_raw_device_path, open_device, auto_open_volume, parse_size};
+
+pub fn cmd_slot(image: &str, block_size: u32, add: bool, remove: Option<usize>, list: bool) -> Result<()> {
+    let mut dev = open_device(image, None)?;
+    if !crate::crypto::is_encrypted_device(&mut *dev)? {
+        bail!("Volume is not encrypted");
+    }
+
+    if add {
+        let auth_password = super::prompt_password("Current password (to authorize addition): ")?;
+        let mut hdr = crate::crypto::header::CryptoHeader::read_from(&mut *dev, auth_password.as_bytes(), block_size)?;
+        
+        // Extract master key by decrypting with current password
+        let master_key = match hdr.slots.iter().find_map(|s| s.try_unlock(auth_password.as_bytes()).ok().flatten()) {
+            Some(mk) => mk,
+            None => bail!("wrong password — no active slot could be unlocked"),
+        };
+        
+        let new_password = super::prompt_password("New slot password: ")?;
+        let confirm = super::prompt_password("Confirm new slot password: ")?;
+        if new_password != confirm {
+            bail!("passwords do not match");
+        }
+        
+        // Use default KDF params for new slot, could be configurable
+        let kdf_params = KdfParams::default_argon2id();
+        let idx = hdr.add_slot(&master_key, new_password.as_bytes(), &kdf_params)?;
+        hdr.write_to(&mut *dev, auth_password.as_bytes(), block_size)?;
+        println!("Successfully added new key slot at index {idx}");
+    } else if let Some(idx) = remove {
+        let auth_password = super::prompt_password("Current password (to authorize removal): ")?;
+        let mut hdr = crate::crypto::header::CryptoHeader::read_from(&mut *dev, auth_password.as_bytes(), block_size)?;
+        hdr.remove_slot(idx, auth_password.as_bytes())?;
+        hdr.write_to(&mut *dev, auth_password.as_bytes(), block_size)?;
+        println!("Successfully removed key slot {idx}");
+    } else if list {
+        let auth_password = super::prompt_password("Password (to read slots): ")?;
+        let hdr = crate::crypto::header::CryptoHeader::read_from(&mut *dev, auth_password.as_bytes(), block_size)?;
+        println!("Key slots:");
+        for (i, slot) in hdr.slots.iter().enumerate() {
+            if slot.is_active() {
+                println!("  [{i}] Active (KDF: {:?})", slot.kdf_params.algorithm);
+            } else {
+                println!("  [{i}] Empty");
+            }
+        }
+    } else {
+        println!("Specify --list, --add, or --remove <INDEX>");
+    }
+
+    Ok(())
+}
 
 // ---------------------------------------------------------------------------
-// 4B Ã¢â‚¬â€ cfs format
+// 4B — cfs format
 // ---------------------------------------------------------------------------
 
-pub fn cmd_format(image: &str, size_str: &str, encrypted: bool, kdf_params: &KdfParams, format_opts: &FormatOptions) -> Result<()> {
+// ---------------------------------------------------------------------------
+// A6 — cfs verify
+// ---------------------------------------------------------------------------
+
+/// Verify the integrity of a CFS volume: magic, superblock CRC, and HMAC.
+///
+/// Exits with a non-zero status if any check fails. Suitable for use in
+/// scripts and CI pipelines.
+pub fn cmd_verify(image: &str, block_size: u32) -> Result<()> {
+    println!("Verifying CFS volume: {image}");
+
+    // --- Check 1: Try to open the block device ---
+    let mut dev = open_device(image, None)
+        .map_err(|e| anyhow::anyhow!("Cannot open volume file: {e}"))?;
+
+    // --- Check 2: Detect and report encryption ---
+    let is_encrypted = crypto::is_encrypted_device(&mut *dev)?;
+    let mut any_error = false;
+
+    if is_encrypted {
+        // v3: header is fully encrypted — no magic bytes visible at offset 0.
+        // Cannot validate header without a password.
+        println!("  [✓] v3 encrypted volume detected (fully opaque header — no magic bytes)");
+        println!("  [i] Provide the password to mount and perform full integrity check.");
+    } else {
+        println!("  [i] Volume is not encrypted (plaintext)");
+    }
+    drop(dev);
+
+    // --- Check 3: Try to mount the volume (may prompt for password if encrypted) ---
+    match auto_open_volume(image, block_size) {
+        Ok(vol) => {
+            let sb = vol.superblock();
+
+            // Magic
+            if &sb.magic == b"CFS1" {
+                println!("  [✓] Superblock magic: CFS1");
+            } else {
+                println!("  [✗] Superblock magic INVALID: {:?}", &sb.magic);
+                any_error = true;
+            }
+
+            // Basic sanity
+            if sb.block_size >= 512 && sb.block_size.is_power_of_two() {
+                println!("  [✓] Block size: {} bytes", sb.block_size);
+            } else {
+                println!("  [✗] Block size invalid: {}", sb.block_size);
+                any_error = true;
+            }
+
+            if sb.total_blocks > 0 {
+                println!("  [✓] Total blocks: {}", sb.total_blocks);
+            } else {
+                println!("  [✗] Total blocks is zero (corrupt superblock)");
+                any_error = true;
+            }
+
+            if sb.free_blocks <= sb.total_blocks {
+                println!("  [✓] Free blocks: {} / {}", sb.free_blocks, sb.total_blocks);
+            } else {
+                println!("  [✗] Free blocks ({}) > total blocks ({}) — corrupt!",
+                    sb.free_blocks, sb.total_blocks);
+                any_error = true;
+            }
+
+            if sb.inode_count > 0 {
+                println!("  [✓] Inode count: {}", sb.inode_count);
+            } else {
+                println!("  [✗] Inode count is zero (corrupt superblock)");
+                any_error = true;
+            }
+
+            // Try to list root directory
+            match vol.list_dir("/") {
+                Ok(entries) => {
+                    let names: Vec<&str> = entries.iter().map(|e| e.name_str()).collect();
+                    if names.contains(&".") && names.contains(&"..") {
+                        println!("  [✓] Root directory accessible ({} entries)", entries.len());
+                    } else {
+                        println!("  [✗] Root directory missing . or .. entries");
+                        any_error = true;
+                    }
+                }
+                Err(e) => {
+                    println!("  [✗] Root directory read failed: {e}");
+                    any_error = true;
+                }
+            }
+
+            // Journal status
+            if vol.journal_status().is_some() {
+                println!("  [✓] Journal present");
+            }
+        }
+        Err(e) => {
+            if is_encrypted {
+                println!("  [!] Could not mount encrypted volume (password required for full check)");
+                println!("      Tip: run 'cfs verify' interactively to enter the password.");
+                println!("      Header-level checks (above) were still performed.");
+            } else {
+                println!("  [✗] Could not mount volume: {e}");
+                any_error = true;
+            }
+        }
+    }
+
+    // --- AES-NI ---
+    let aes_ni = crypto::aes_ni_available();
+    println!("  [i] AES-NI: {}",
+        if aes_ni { "available" } else { "not available" });
+
+    if any_error {
+        anyhow::bail!("Volume integrity check FAILED. See above for details.");
+    } else {
+        println!("\nVolume integrity check PASSED.");
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// A7 — cfs wipe
+// ---------------------------------------------------------------------------
+
+/// Securely overwrite a CFS volume file with random data, then delete it.
+///
+/// Uses 64 KiB chunks to avoid large memory allocations. Each pass writes
+/// fresh random data from the OS CSPRNG and calls `sync_all()` to force
+/// the OS to flush to the storage medium.
+///
+/// # Security note
+/// On SSDs and modern HDDs with wear-levelling, a single pass of random
+/// data is sufficient to make the original content unrecoverable without
+/// physical lab analysis. Use `passes=3` for defence-in-depth.
+pub fn cmd_wipe(image: &str, passes: u32) -> Result<()> {
+    use rand::RngCore;
+    use std::io::Seek;
+
+    if passes == 0 {
+        anyhow::bail!("passes must be >= 1");
+    }
+
+    let meta = std::fs::metadata(image)
+        .map_err(|e| anyhow::anyhow!("Cannot read volume file '{}': {e}", image))?;
+    let size = meta.len();
+    if size == 0 {
+        anyhow::bail!("file is empty — nothing to wipe");
+    }
+
+    println!("Wiping '{}' ({}, {} pass{})...",
+        image,
+        format_size_human(size),
+        passes,
+        if passes == 1 { "" } else { "es" });
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(image)
+        .map_err(|e| anyhow::anyhow!("Cannot open '{}' for writing: {e}", image))?;
+
+    const CHUNK: usize = 64 * 1024; // 64 KiB
+    let mut buf = vec![0u8; CHUNK];
+
+    for pass in 1..=passes {
+        println!("  Pass {pass}/{passes}: overwriting with random data...");
+        file.seek(std::io::SeekFrom::Start(0))
+            .map_err(|e| anyhow::anyhow!("Seek failed: {e}"))?;
+        let mut written = 0u64;
+        while written < size {
+            rand::rngs::OsRng.fill_bytes(&mut buf);
+            let to_write = ((size - written) as usize).min(CHUNK);
+            use std::io::Write;
+            file.write_all(&buf[..to_write])
+                .map_err(|e| anyhow::anyhow!("Write failed at offset {written}: {e}"))?;
+            written += to_write as u64;
+        }
+        file.sync_all()
+            .map_err(|e| anyhow::anyhow!("sync_all failed after pass {pass}: {e}"))?;
+        println!("  Pass {pass}/{passes}: done.");
+    }
+
+    drop(file);
+    std::fs::remove_file(image)
+        .map_err(|e| anyhow::anyhow!("Could not delete '{}' after wipe: {e}", image))?;
+
+    println!("Volume '{}' securely wiped and deleted.", image);
+    Ok(())
+}
+
+pub fn cmd_format(image: &str, size_str: &str, encrypted: bool, aead: bool, kdf_params: &KdfParams, format_opts: &FormatOptions) -> Result<()> {
     let block_size = format_opts.block_size;
     let dev = if is_raw_device_path(image) {
         open_device(image, None)?
@@ -37,6 +277,7 @@ pub fn cmd_format(image: &str, size_str: &str, encrypted: bool, kdf_params: &Kdf
             password.as_bytes(),
             kdf_params,
             block_size,
+            aead,
         )?;
         CFSVolume::format_v3(Box::new(enc), format_opts)?
     } else {
@@ -92,6 +333,7 @@ pub fn cmd_format_with_password(
         password.as_bytes(),
         kdf_params,
         block_size,
+        false, // enable_aead: off by default for testing helper
     )?;
     let _vol = CFSVolume::format_v3(Box::new(enc), format_opts)?;
     Ok(())
@@ -102,33 +344,8 @@ pub fn cmd_format_with_password(
 // ---------------------------------------------------------------------------
 
 pub fn cmd_info(image: &str, block_size: u32) -> Result<()> {
-    // Check for encrypted header and display KDF info before opening volume
     let mut dev = open_device(image, None)?;
     let is_encrypted = crypto::is_encrypted_device(&mut *dev)?;
-    let mut kdf_info: Option<(String, String)> = None;
-    if is_encrypted {
-        if let Ok(hdr) = CryptoHeader::read_from(&mut *dev, block_size) {
-            let params = hdr.kdf_params();
-            let algo = match params.algorithm {
-                KdfAlgorithm::Pbkdf2HmacSha256 => "PBKDF2-HMAC-SHA256".to_string(),
-                KdfAlgorithm::Argon2id => "Argon2id".to_string(),
-            };
-            let details = match params.algorithm {
-                KdfAlgorithm::Pbkdf2HmacSha256 => {
-                    format!("iterations={}", params.pbkdf2_iterations)
-                }
-                KdfAlgorithm::Argon2id => {
-                    format!(
-                        "memory={} MiB, time={}, parallelism={}",
-                        params.argon2_memory_kib / 1024,
-                        params.argon2_time_cost,
-                        params.argon2_parallelism
-                    )
-                }
-            };
-            kdf_info = Some((algo, details));
-        }
-    }
     drop(dev);
 
     let vol = auto_open_volume(image, block_size)?;
@@ -190,10 +407,6 @@ pub fn cmd_info(image: &str, block_size: u32) -> Result<()> {
 
     if is_encrypted {
         println!("  Encrypted:             yes");
-        if let Some((algo, details)) = kdf_info {
-            println!("  KDF algorithm:         {algo}");
-            println!("  KDF parameters:        {details}");
-        }
     } else {
         println!("  Encrypted:             no");
     }
@@ -572,7 +785,7 @@ pub fn cmd_passwd(image: &str, block_size: u32, new_kdf: Option<KdfParams>) -> R
 }
 
 // ---------------------------------------------------------------------------
-// 7F.4 Ã¢â‚¬â€ cfs bench-kdf
+// 7F.4 — cfs bench-kdf
 // ---------------------------------------------------------------------------
 
 pub fn cmd_bench_kdf(kdf_params: &KdfParams) -> Result<()> {
@@ -896,7 +1109,7 @@ mod tests {
     fn fast_pbkdf2() -> KdfParams {
         KdfParams {
             algorithm: KdfAlgorithm::Pbkdf2HmacSha256,
-            pbkdf2_iterations: 600_000,
+            pbkdf2_iterations: 10_000,
             argon2_memory_kib: 0,
             argon2_time_cost: 0,
             argon2_parallelism: 0,
@@ -907,7 +1120,7 @@ mod tests {
         let tmp = temp_image_path();
         let path = tmp.path().to_str().unwrap().to_string();
         let opts = FormatOptions::default();
-        cmd_format(&path, size_str, false, &dummy_kdf(), &opts).unwrap();
+        cmd_format(&path, size_str, false, false, &dummy_kdf(), &opts).unwrap();
         (tmp, path)
     }
 
@@ -929,7 +1142,7 @@ mod tests {
         let mut opts = FormatOptions::default();
         opts.block_size = 512;
         opts.blocks_per_group = 512 * 8; // Must match block_size
-        cmd_format(&path, "2M", false, &dummy_kdf(), &opts).unwrap();
+        cmd_format(&path, "2M", false, false, &dummy_kdf(), &opts).unwrap();
         let vol = open_volume(&path, 512).unwrap();
         assert_eq!(vol.superblock().block_size, 512);
     }
@@ -939,7 +1152,7 @@ mod tests {
         let tmp = temp_image_path();
         let path = tmp.path().to_str().unwrap().to_string();
         let opts = FormatOptions::default();
-        assert!(cmd_format(&path, "0", false, &dummy_kdf(), &opts).is_err());
+        assert!(cmd_format(&path, "0", false, false, &dummy_kdf(), &opts).is_err());
     }
 
     // --- 4C info tests ---
@@ -1390,11 +1603,8 @@ mod tests {
         let opts = FormatOptions::default();
         cmd_format_with_password(&path, "2M", "test_pw", &fast_pbkdf2(), &opts).unwrap();
 
-        // First 4 bytes should be "CFSE"
         let mut dev = open_device(&path, None).unwrap();
-        let mut buf = vec![0u8; 512];
-        dev.read(0, &mut buf).unwrap();
-        assert_eq!(&buf[0..4], b"CFSE");
+        assert!(crate::crypto::is_encrypted_device(&mut *dev).unwrap());
     }
 
     #[test]

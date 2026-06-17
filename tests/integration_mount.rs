@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 /// 5L — WinFSP Integration Tests
 ///
 /// These tests spawn the real `cfs-io.exe` binary, mount a CFS image as a
@@ -14,7 +15,6 @@
 ///
 /// `--test-threads 1` is required because each test uses the same drive
 /// letter (T:).  Running in parallel would cause mount conflicts.
-
 use std::path::Path;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};

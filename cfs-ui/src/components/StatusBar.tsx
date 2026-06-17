@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store";
-import { listFreeDriveLetters } from "../commands";
+import { listFreeDriveLetters, checkAesNi, verifyMountedVolume, wipeMountedVolume } from "../commands";
 import LockConfirmDialog, { shouldSkipLockConfirm } from "./LockConfirmDialog";
+import KeySlotManagerModal from "./KeySlotManagerModal";
 
 export default function StatusBar() {
   const volumeInfo = useAppStore((s) => s.volumeInfo);
@@ -18,6 +19,9 @@ export default function StatusBar() {
   const navigate = useNavigate();
 
   const [showLockConfirm, setShowLockConfirm] = useState(false);
+  const [showKeyManager, setShowKeyManager] = useState(false);
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
+  const [wipeConfirm, setWipeConfirm] = useState(false);
 
   function handleLockClick() {
     if (shouldSkipLockConfirm()) {
@@ -33,13 +37,43 @@ export default function StatusBar() {
     navigate("/");
   }
 
+  async function handleVerify() {
+    setVerifyMsg("Verifying...");
+    try {
+      await verifyMountedVolume();
+      setVerifyMsg("PASSED: Metadata intact");
+      setTimeout(() => setVerifyMsg(null), 4000);
+    } catch (err) {
+      alert(`Verification FAILED: ${err}`);
+      setVerifyMsg(null);
+    }
+  }
+
+  async function handleWipe() {
+    if (!wipeConfirm) {
+      setWipeConfirm(true);
+      return;
+    }
+    setVerifyMsg("Wiping...");
+    try {
+      await wipeMountedVolume(1);
+      useAppStore.setState({ volumeInfo: null });
+    } catch (err) {
+      alert(`Wipe FAILED: ${err}`);
+      setVerifyMsg(null);
+      setWipeConfirm(false);
+    }
+  }
+
   const [showMountPicker, setShowMountPicker] = useState(false);
   const [freeDriveLetters, setFreeDriveLetters] = useState<string[]>([]);
   const [selectedLetter, setSelectedLetter] = useState<string>("");
   const [mountLoading, setMountLoading] = useState(false);
+  const [aesNi, setAesNi] = useState(false);
 
   useEffect(() => {
     checkWinfsp();
+    checkAesNi().then(setAesNi).catch(() => {});
   }, [checkWinfsp]);
 
   async function handleMountClick() {
@@ -89,6 +123,12 @@ export default function StatusBar() {
         <span className="text-text-muted">{badge}</span>
         <span className="text-text-muted">│</span>
         <span className="text-text-muted">{freeBlocks}</span>
+        {aesNi && (
+          <>
+            <span className="text-text-muted">│</span>
+            <span className="text-success text-xs font-mono" title="AES-NI Hardware Acceleration Enabled">AES-NI</span>
+          </>
+        )}
         {isMounted && driveLetter && (
           <>
             <span className="text-text-muted">│</span>
@@ -131,6 +171,33 @@ export default function StatusBar() {
             &#xF0A0; Unmount
           </button>
         )}
+        {verifyMsg && (
+          <span className="text-success text-xs font-bold px-2 py-0.5 border border-success/30 bg-success/10">{verifyMsg}</span>
+        )}
+        <button
+          className="px-2 py-0.5 text-sm text-text-muted border border-border hover:border-border-focus hover:text-text"
+          onClick={handleVerify}
+          disabled={loading}
+          aria-label="Verify volume integrity"
+        >
+          &#x2714; Verify
+        </button>
+        <button
+          className="px-2 py-0.5 text-sm text-error border border-border hover:border-error hover:bg-error/10 disabled:opacity-40"
+          onClick={handleWipe}
+          disabled={loading}
+          title="Securely overwrite and delete volume"
+        >
+          {wipeConfirm ? "Are you sure?" : "Secure Delete"}
+        </button>
+        <button
+          className="px-2 py-0.5 text-sm text-text-muted border border-border hover:border-border-focus hover:text-text"
+          onClick={() => setShowKeyManager(true)}
+          disabled={loading}
+          aria-label="Manage keys"
+        >
+          &#x26BF; Keys
+        </button>
         <button
           className="px-2 py-0.5 text-sm text-text-muted border border-border hover:border-border-focus hover:text-text"
           onClick={handleLockClick}
@@ -149,6 +216,12 @@ export default function StatusBar() {
             onCancel={() => setShowLockConfirm(false)}
           />
         )}
+
+        {/* Key Slot Manager */}
+        <KeySlotManagerModal
+          open={showKeyManager}
+          onClose={() => setShowKeyManager(false)}
+        />
 
         {/* Drive letter picker popup */}
         {showMountPicker && (

@@ -106,8 +106,8 @@ impl CFSBlockDevice for FileBlockDevice {
             );
         }
         self.file.seek(SeekFrom::Start(offset))?;
-        let n = self.file.read(buf)?;
-        Ok(n)
+        self.file.read_exact(buf)?;
+        Ok(buf.len())
     }
 
     fn write(&mut self, offset: u64, buf: &[u8]) -> Result<usize> {

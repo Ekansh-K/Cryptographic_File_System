@@ -57,9 +57,9 @@ export default function CreateVolumeForm({ onCreated, onCancel }: Props) {
   const [confirm, setConfirm] = useState("");
   const [pbkdf2Iters, setPbkdf2Iters] = useState(300_000);
   const [kdf, setKdf] = useState<"argon2id" | "pbkdf2">("argon2id");
-  const [argon2MemoryMib, setArgon2MemoryMib] = useState(32);
-  const [argon2Time, setArgon2Time] = useState(2);
-  const [argon2Parallelism, setArgon2Parallelism] = useState(1);
+  const [argon2MemoryMib, setArgon2MemoryMib] = useState(64);
+  const [argon2Time, setArgon2Time] = useState(3);
+  const [argon2Parallelism, setArgon2Parallelism] = useState(2);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [freeSpace, setFreeSpace] = useState<number | null>(null);
@@ -74,6 +74,7 @@ export default function CreateVolumeForm({ onCreated, onCancel }: Props) {
   const [formatSecureDelete, setFormatSecureDelete] = useState(true);
   const [formatDefaultPermissions, setFormatDefaultPermissions] = useState(0o755);
   const [formatErrorBehavior, setFormatErrorBehavior] = useState("continue");
+  const [formatEnableAead, setFormatEnableAead] = useState(true);
 
   const loading = useAppStore((s) => s.loading);
   const create = useAppStore((s) => s.create);
@@ -166,6 +167,7 @@ export default function CreateVolumeForm({ onCreated, onCancel }: Props) {
       secure_delete: formatSecureDelete !== true ? formatSecureDelete : undefined,
       default_permissions: formatDefaultPermissions !== 0o755 ? formatDefaultPermissions : undefined,
       error_behavior: formatErrorBehavior !== "continue" ? formatErrorBehavior : undefined,
+      enable_aead: formatEnableAead || undefined,
     };
     // Only send formatOpts if any field is set (avoid empty object overhead)
     const hasFormatOpts = Object.values(formatOpts).some((v) => v !== undefined);
@@ -366,6 +368,8 @@ export default function CreateVolumeForm({ onCreated, onCancel }: Props) {
         setFormatDefaultPermissions={setFormatDefaultPermissions}
         formatErrorBehavior={formatErrorBehavior}
         setFormatErrorBehavior={setFormatErrorBehavior}
+        formatEnableAead={formatEnableAead}
+        setFormatEnableAead={setFormatEnableAead}
       />
     </form>
   );
