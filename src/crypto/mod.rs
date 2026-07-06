@@ -62,7 +62,7 @@ pub struct EncryptedBlockDevice {
     header_blocks: u64,
     encryption_unit: u32,
     aead_enabled: bool,
-    tag_key: Option<[u8; 32]>,
+    aead_cipher: Option<aead::AeadCipher>,
     /// Byte offset in the INNER device where the tag region begins (0 if disabled).
     tag_region_start: u64,
     /// Usable data size exposed to callers (pre-computed at construction).
@@ -74,7 +74,6 @@ pub struct EncryptedBlockDevice {
 impl Drop for EncryptedBlockDevice {
     fn drop(&mut self) {
         self.header_password.zeroize();
-        if let Some(ref mut tk) = self.tag_key { tk.zeroize(); }
     }
 }
 
@@ -104,8 +103,11 @@ impl EncryptedBlockDevice {
         )?;
         hdr.write_to(&mut *inner, password, encryption_unit)?;
 
-        let tag_key = if enable_aead {
-            Some(CryptoHeader::derive_tag_key(&master_key))
+        let aead_cipher = if enable_aead {
+            let mut tag_key = CryptoHeader::derive_tag_key(&master_key);
+            let ac = aead::AeadCipher::with_block_unit(&tag_key, encryption_unit as usize);
+            tag_key.zeroize();
+            Some(ac)
         } else { None };
 
         let cipher = XtsCipher::new(&master_key, encryption_unit);
@@ -123,7 +125,7 @@ impl EncryptedBlockDevice {
             header_blocks: 1,
             encryption_unit,
             aead_enabled: enable_aead,
-            tag_key,
+            aead_cipher,
             tag_region_start,
             usable_size,
             header_password: password.to_vec(),
@@ -142,8 +144,11 @@ impl EncryptedBlockDevice {
         let total_size = inner.size();
         let header_size = hdr.header_blocks as u64 * hdr.encryption_unit as u64;
 
-        let tag_key = if aead_enabled {
-            Some(CryptoHeader::derive_tag_key(&master_key))
+        let aead_cipher = if aead_enabled {
+            let mut tag_key = CryptoHeader::derive_tag_key(&master_key);
+            let ac = aead::AeadCipher::with_block_unit(&tag_key, hdr.encryption_unit as usize);
+            tag_key.zeroize();
+            Some(ac)
         } else { None };
 
         let cipher = XtsCipher::new(&master_key, hdr.encryption_unit);
@@ -161,7 +166,7 @@ impl EncryptedBlockDevice {
             header_blocks: hdr.header_blocks as u64,
             encryption_unit: hdr.encryption_unit,
             aead_enabled,
-            tag_key,
+            aead_cipher,
             tag_region_start,
             usable_size,
             header_password: password.to_vec(),
@@ -220,14 +225,16 @@ impl CFSBlockDevice for EncryptedBlockDevice {
 
         let first_block = offset / self.encryption_unit as u64;
         if self.aead_enabled {
-            if let Some(tag_key) = self.tag_key {
+            // Clone to release immutable borrow on `self.aead_cipher` before
+            // calling `self.read_tag()` which requires `&mut self`.
+            if let Some(aead_cipher) = self.aead_cipher.clone() {
                 let num_blocks = n / eu;
+                let mut stored_tags: Vec<[u8; 16]> = Vec::with_capacity(num_blocks);
                 for i in 0..num_blocks {
-                    let blk_idx = first_block + i as u64;
-                    let chunk = &buf[i * eu..(i + 1) * eu];
-                    let stored_tag = self.read_tag(blk_idx)?;
-                    aead::verify_block_tag(&tag_key, blk_idx, chunk, &stored_tag)?;
+                    stored_tags.push(self.read_tag(first_block + i as u64)?);
                 }
+                // Verify all tags in parallel (Rayon)
+                aead_cipher.verify_tags_parallel(first_block, &buf[..n], &stored_tags)?;
             }
         }
 
@@ -250,13 +257,12 @@ impl CFSBlockDevice for EncryptedBlockDevice {
         self.cipher.encrypt_blocks_parallel(first_block, &mut encrypted);
 
         if self.aead_enabled {
-            if let Some(tag_key) = self.tag_key {
-                let num_blocks = encrypted.len() / eu;
-                for i in 0..num_blocks {
-                    let blk_idx = first_block + i as u64;
-                    let chunk = &encrypted[i * eu..(i + 1) * eu];
-                    let tag = aead::compute_block_tag(&tag_key, blk_idx, chunk);
-                    self.write_tag(blk_idx, &tag)?;
+            // Clone to release immutable borrow on `self.aead_cipher` before
+            // calling `self.write_tag()` which requires `&mut self`.
+            if let Some(aead_cipher) = self.aead_cipher.clone() {
+                let tags = aead_cipher.compute_tags_parallel(first_block, &encrypted);
+                for (i, tag) in tags.iter().enumerate() {
+                    self.write_tag(first_block + i as u64, tag)?;
                 }
             }
         }
