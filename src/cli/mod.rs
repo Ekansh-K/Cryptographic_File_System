@@ -47,7 +47,7 @@ pub enum Commands {
         /// Create an encrypted volume (prompts for password)
         #[arg(long, alias = "encrypt")]
         encrypted: bool,
-        /// KDF algorithm: "argon2id" or "pbkdf2" (default: argon2id)
+        /// KDF algorithm: "argon2id", "pbkdf2", or "pbkdf2-sha512" (default: argon2id)
         #[arg(long, default_value = "argon2id")]
         kdf: String,
         /// Enable Authenticated Encryption with Associated Data (AEAD)
@@ -236,7 +236,7 @@ pub enum Commands {
     Passwd {
         #[command(flatten)]
         args: ImageArgs,
-        /// New KDF algorithm: "argon2id" or "pbkdf2" (default: keep current)
+        /// New KDF algorithm: "argon2id", "pbkdf2", or "pbkdf2-sha512" (default: keep current)
         #[arg(long)]
         kdf: Option<String>,
         /// New PBKDF2 iteration count (only with --kdf pbkdf2)
@@ -281,7 +281,7 @@ pub enum Commands {
     },
     /// Benchmark KDF parameters (measure derivation time)
     BenchKdf {
-        /// KDF algorithm: "argon2id" or "pbkdf2"
+        /// KDF algorithm: "argon2id", "pbkdf2", or "pbkdf2-sha512"
         #[arg(long, default_value = "argon2id")]
         kdf: String,
         /// PBKDF2 iterations (only with --kdf pbkdf2)
@@ -704,8 +704,15 @@ pub fn parse_kdf_params(
     argon2_parallelism: u32,
 ) -> Result<KdfParams> {
     match kdf.to_ascii_lowercase().as_str() {
-        "pbkdf2" | "pbkdf2-hmac-sha256" => Ok(KdfParams {
+        "pbkdf2" | "pbkdf2-sha256" | "pbkdf2-hmac-sha256" => Ok(KdfParams {
             algorithm: KdfAlgorithm::Pbkdf2HmacSha256,
+            pbkdf2_iterations: pbkdf2_iters,
+            argon2_memory_kib: 0,
+            argon2_time_cost: 0,
+            argon2_parallelism: 0,
+        }),
+        "pbkdf2-sha512" | "pbkdf2-hmac-sha512" => Ok(KdfParams {
+            algorithm: KdfAlgorithm::Pbkdf2HmacSha512,
             pbkdf2_iterations: pbkdf2_iters,
             argon2_memory_kib: 0,
             argon2_time_cost: 0,
@@ -718,7 +725,7 @@ pub fn parse_kdf_params(
             argon2_time_cost: argon2_time,
             argon2_parallelism,
         }),
-        other => bail!("unknown KDF algorithm: '{other}' (expected: argon2id, pbkdf2)"),
+        other => bail!("unknown KDF algorithm: '{other}' (expected: argon2id, pbkdf2, pbkdf2-sha512)"),
     }
 }
 

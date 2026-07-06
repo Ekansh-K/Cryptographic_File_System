@@ -263,6 +263,7 @@ pub fn cmd_format(image: &str, size_str: &str, encrypted: bool, aead: bool, kdf_
 
     let kdf_name = match kdf_params.algorithm {
         KdfAlgorithm::Pbkdf2HmacSha256 => "PBKDF2-HMAC-SHA256",
+        KdfAlgorithm::Pbkdf2HmacSha512 => "PBKDF2-HMAC-SHA512",
         KdfAlgorithm::Argon2id => "Argon2id",
     };
 
@@ -791,10 +792,11 @@ pub fn cmd_passwd(image: &str, block_size: u32, new_kdf: Option<KdfParams>) -> R
 pub fn cmd_bench_kdf(kdf_params: &KdfParams) -> Result<()> {
     let algo_name = match kdf_params.algorithm {
         KdfAlgorithm::Pbkdf2HmacSha256 => "PBKDF2-HMAC-SHA256",
+        KdfAlgorithm::Pbkdf2HmacSha512 => "PBKDF2-HMAC-SHA512",
         KdfAlgorithm::Argon2id => "Argon2id",
     };
     let detail = match kdf_params.algorithm {
-        KdfAlgorithm::Pbkdf2HmacSha256 => {
+        KdfAlgorithm::Pbkdf2HmacSha256 | KdfAlgorithm::Pbkdf2HmacSha512 => {
             format!("iterations={}", kdf_params.pbkdf2_iterations)
         }
         KdfAlgorithm::Argon2id => {

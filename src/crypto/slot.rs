@@ -126,6 +126,7 @@ impl From<(usize, &KeySlot)> for KeySlotInfo {
             match slot.kdf_params.algorithm {
                 KdfAlgorithm::Argon2id => ("argon2id".to_string(), Some(slot.kdf_params.argon2_memory_kib / 1024), Some(slot.kdf_params.argon2_time_cost), Some(slot.kdf_params.argon2_parallelism), None),
                 KdfAlgorithm::Pbkdf2HmacSha256 => ("pbkdf2".to_string(), None, None, None, Some(slot.kdf_params.pbkdf2_iterations)),
+                KdfAlgorithm::Pbkdf2HmacSha512 => ("pbkdf2-sha512".to_string(), None, None, None, Some(slot.kdf_params.pbkdf2_iterations)),
             }
         } else { ("disabled".to_string(), None, None, None, None) };
         Self { index, is_active, kdf_algorithm: algo_str, argon2_memory_mib: mem, argon2_time_cost: time, argon2_parallelism: para, pbkdf2_iterations: iters }

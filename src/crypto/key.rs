@@ -1,9 +1,9 @@
 use anyhow::{bail, Result};
 use hmac::{Hmac, Mac};
-use pbkdf2::pbkdf2_hmac;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use sha2::Sha256;
+use rayon::prelude::*;
+use sha2::{Sha256, Sha512};
 use zeroize::Zeroize;
 
 /// Minimum PBKDF2 iteration count.
@@ -25,6 +25,8 @@ pub enum KdfAlgorithm {
     Pbkdf2HmacSha256 = 0,
     /// Argon2id (v2 default, memory-hard)
     Argon2id = 1,
+    /// PBKDF2-HMAC-SHA512 (512-bit variant)
+    Pbkdf2HmacSha512 = 2,
 }
 
 impl KdfAlgorithm {
@@ -32,6 +34,7 @@ impl KdfAlgorithm {
         match v {
             0 => Ok(Self::Pbkdf2HmacSha256),
             1 => Ok(Self::Argon2id),
+            2 => Ok(Self::Pbkdf2HmacSha512),
             _ => bail!("unknown KDF algorithm: {v}"),
         }
     }
@@ -64,6 +67,17 @@ impl KdfParams {
         }
     }
 
+    /// Default PBKDF2-SHA512 parameters (balanced preset: 300,000 iterations).
+    pub fn default_pbkdf2_sha512() -> Self {
+        Self {
+            algorithm: KdfAlgorithm::Pbkdf2HmacSha512,
+            pbkdf2_iterations: 300_000,
+            argon2_memory_kib: 0,
+            argon2_time_cost: 0,
+            argon2_parallelism: 0,
+        }
+    }
+
     /// Default Argon2id parameters (balanced preset: 32 MiB, t=2, p=2).
     pub fn default_argon2id() -> Self {
         Self {
@@ -78,7 +92,7 @@ impl KdfParams {
     /// Validate that the parameters are within acceptable ranges.
     pub fn validate(&self) -> Result<()> {
         match self.algorithm {
-            KdfAlgorithm::Pbkdf2HmacSha256 => {
+            KdfAlgorithm::Pbkdf2HmacSha256 | KdfAlgorithm::Pbkdf2HmacSha512 => {
                 if cfg!(test) {
                     if self.pbkdf2_iterations < 1_000 {
                         bail!("PBKDF2 iterations ({}) below minimum (1000)", self.pbkdf2_iterations);
@@ -117,15 +131,85 @@ impl KdfParams {
                         self.argon2_time_cost
                     );
                 }
-                if self.argon2_parallelism < 1 || self.argon2_parallelism > 4 {
+                if self.argon2_parallelism < 1 || self.argon2_parallelism > 64 {
                     bail!(
-                        "Argon2id parallelism ({}) out of range [1, 4]",
+                        "Argon2id parallelism ({}) out of range [1, 64]",
                         self.argon2_parallelism
                     );
                 }
             }
         }
         Ok(())
+    }
+}
+
+/// Compute PBKDF2-HMAC-SHA256 in parallel across output blocks using Rayon.
+/// For 96 bytes of output, this computes 3 blocks (T_1, T_2, T_3) in parallel across CPU threads.
+fn pbkdf2_hmac_sha256_parallel(password: &[u8], salt: &[u8], iterations: u32, out: &mut [u8]) {
+    let num_blocks = (out.len() + 31) / 32;
+    let mut blocks: Vec<(u32, Vec<u8>)> = (1..=num_blocks as u32)
+        .map(|i| (i, vec![0u8; 32]))
+        .collect();
+
+    blocks.par_iter_mut().for_each(|(block_idx, block_out)| {
+        let base_mac = Hmac::<Sha256>::new_from_slice(password)
+            .expect("HMAC can take key of any size");
+        let mut mac = base_mac.clone();
+        mac.update(salt);
+        mac.update(&block_idx.to_be_bytes());
+        let mut u = mac.finalize().into_bytes();
+        let mut res = u;
+        for _ in 1..iterations {
+            let mut mac = base_mac.clone();
+            mac.update(&u);
+            u = mac.finalize().into_bytes();
+            for (r, b) in res.iter_mut().zip(u.iter()) {
+                *r ^= *b;
+            }
+        }
+        block_out.copy_from_slice(&res);
+    });
+
+    for (i, (_, block_bytes)) in blocks.iter_mut().enumerate() {
+        let start = i * 32;
+        let end = (start + 32).min(out.len());
+        out[start..end].copy_from_slice(&block_bytes[..end - start]);
+        block_bytes.zeroize();
+    }
+}
+
+/// Compute PBKDF2-HMAC-SHA512 in parallel across output blocks using Rayon.
+/// For 96 bytes of output, this computes 2 blocks (T_1, T_2) in parallel across CPU threads.
+fn pbkdf2_hmac_sha512_parallel(password: &[u8], salt: &[u8], iterations: u32, out: &mut [u8]) {
+    let num_blocks = (out.len() + 63) / 64;
+    let mut blocks: Vec<(u32, Vec<u8>)> = (1..=num_blocks as u32)
+        .map(|i| (i, vec![0u8; 64]))
+        .collect();
+
+    blocks.par_iter_mut().for_each(|(block_idx, block_out)| {
+        let base_mac = Hmac::<Sha512>::new_from_slice(password)
+            .expect("HMAC can take key of any size");
+        let mut mac = base_mac.clone();
+        mac.update(salt);
+        mac.update(&block_idx.to_be_bytes());
+        let mut u = mac.finalize().into_bytes();
+        let mut res = u;
+        for _ in 1..iterations {
+            let mut mac = base_mac.clone();
+            mac.update(&u);
+            u = mac.finalize().into_bytes();
+            for (r, b) in res.iter_mut().zip(u.iter()) {
+                *r ^= *b;
+            }
+        }
+        block_out.copy_from_slice(&res);
+    });
+
+    for (i, (_, block_bytes)) in blocks.iter_mut().enumerate() {
+        let start = i * 64;
+        let end = (start + 64).min(out.len());
+        out[start..end].copy_from_slice(&block_bytes[..end - start]);
+        block_bytes.zeroize();
     }
 }
 
@@ -142,7 +226,10 @@ pub fn derive_keys_with_params(
 
     match params.algorithm {
         KdfAlgorithm::Pbkdf2HmacSha256 => {
-            pbkdf2_hmac::<Sha256>(password, salt, params.pbkdf2_iterations, &mut derived);
+            pbkdf2_hmac_sha256_parallel(password, salt, params.pbkdf2_iterations, &mut derived);
+        }
+        KdfAlgorithm::Pbkdf2HmacSha512 => {
+            pbkdf2_hmac_sha512_parallel(password, salt, params.pbkdf2_iterations, &mut derived);
         }
         KdfAlgorithm::Argon2id => {
             use argon2::{Algorithm, Argon2, Params, Version};
@@ -463,7 +550,7 @@ mod tests {
 
         // Parallelism too high
         p = KdfParams::default_argon2id();
-        p.argon2_parallelism = 5;
+        p.argon2_parallelism = 65;
         assert!(p.validate().is_err());
 
         // Parallelism zero
@@ -476,8 +563,19 @@ mod tests {
     fn test_kdf_algorithm_from_u8() {
         assert_eq!(KdfAlgorithm::from_u8(0).unwrap(), KdfAlgorithm::Pbkdf2HmacSha256);
         assert_eq!(KdfAlgorithm::from_u8(1).unwrap(), KdfAlgorithm::Argon2id);
-        assert!(KdfAlgorithm::from_u8(2).is_err());
+        assert_eq!(KdfAlgorithm::from_u8(2).unwrap(), KdfAlgorithm::Pbkdf2HmacSha512);
+        assert!(KdfAlgorithm::from_u8(3).is_err());
         assert!(KdfAlgorithm::from_u8(255).is_err());
+    }
+
+    #[test]
+    fn test_pbkdf2_sha512_derivation() {
+        let password = b"sha512_test";
+        let salt = [0xDD; 32];
+        let params = KdfParams::default_pbkdf2_sha512();
+        let (kek, hmac_key) = derive_keys_with_params(password, &salt, &params).unwrap();
+        assert_ne!(kek, [0u8; 64]);
+        assert_ne!(hmac_key, [0u8; 32]);
     }
 
     #[test]
