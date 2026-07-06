@@ -130,6 +130,10 @@ export async function getDiskFreeSpace(path?: string): Promise<number> {
   return invoke("get_disk_free_space", { path });
 }
 
+export async function getCpuCount(): Promise<number> {
+  return invoke("get_cpu_count");
+}
+
 export async function benchmarkFormatIo(
   formatOptions: FormatOptionsDto,
   sizeBytes: number,

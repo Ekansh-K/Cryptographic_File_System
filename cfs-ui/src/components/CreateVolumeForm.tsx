@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAppStore } from "../store";
-import { getDiskFreeSpace, listVolumeFiles } from "../commands";
+import { getDiskFreeSpace, listVolumeFiles, getCpuCount } from "../commands";
 import AdvancedSettingsModal from "./AdvancedSettingsModal";
 import type { FormatOptionsDto } from "../types";
 
@@ -56,10 +56,12 @@ export default function CreateVolumeForm({ onCreated, onCancel }: Props) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [pbkdf2Iters, setPbkdf2Iters] = useState(300_000);
-  const [kdf, setKdf] = useState<"argon2id" | "pbkdf2">("argon2id");
+  const [kdf, setKdf] = useState<"argon2id" | "pbkdf2" | "pbkdf2-sha512">("argon2id");
   const [argon2MemoryMib, setArgon2MemoryMib] = useState(64);
   const [argon2Time, setArgon2Time] = useState(3);
+  // Start with 2; will be updated to actual CPU count after first render.
   const [argon2Parallelism, setArgon2Parallelism] = useState(2);
+  const [cpuCount, setCpuCount] = useState(2);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [freeSpace, setFreeSpace] = useState<number | null>(null);
@@ -102,6 +104,17 @@ export default function CreateVolumeForm({ onCreated, onCancel }: Props) {
       .then(setFreeSpace)
       .catch(() => setFreeSpace(null));
   }, [dir]);
+
+  // Detect real CPU thread count once on mount — sets parallelism default
+  useEffect(() => {
+    getCpuCount()
+      .then((count) => {
+        const clamped = Math.max(1, Math.min(64, count));
+        setCpuCount(clamped);
+        setArgon2Parallelism(clamped); // auto-set default to full thread count
+      })
+      .catch(() => { /* keep default 2 */ });
+  }, []);
 
   async function handleChangeLocation() {
     const { save } = await import("@tauri-apps/plugin-dialog");
@@ -178,7 +191,7 @@ export default function CreateVolumeForm({ onCreated, onCancel }: Props) {
         sizeArg,
         password,
         kdf,
-        kdf === "pbkdf2" ? pbkdf2Iters : undefined,
+        kdf === "pbkdf2" || kdf === "pbkdf2-sha512" ? pbkdf2Iters : undefined,
         kdf === "argon2id" ? argon2MemoryMib : undefined,
         kdf === "argon2id" ? argon2Time : undefined,
         kdf === "argon2id" ? argon2Parallelism : undefined,
@@ -283,13 +296,19 @@ export default function CreateVolumeForm({ onCreated, onCancel }: Props) {
 
       {/* Encryption badge + Customize button */}
       <div className="space-y-1">
-        <div className="flex items-center gap-2 text-xs text-text-muted">
+        <div className="flex items-center gap-2 text-xs text-text-muted flex-wrap">
           <span className="text-success">&#x25CF;</span>
-          <span>AES-256-XTS + {kdf === "argon2id" ? "Argon2id" : "PBKDF2"}</span>
+          <span>AES-256-XTS + {kdf === "argon2id" ? "Argon2id" : kdf === "pbkdf2-sha512" ? "PBKDF2-SHA512" : "PBKDF2-SHA256"}</span>
           {formatPreset !== "general" && (
             <>
               <span className="text-text-muted">│</span>
               <span className="text-text-muted capitalize">{formatPreset.replace(/-/g, " ")} preset</span>
+            </>
+          )}
+          {formatEnableAead && (
+            <>
+              <span className="text-text-muted">│</span>
+              <span className="text-success font-semibold">AEAD ({formatBlockSize / 1024} KiB EU)</span>
             </>
           )}
         </div>
@@ -349,8 +368,10 @@ export default function CreateVolumeForm({ onCreated, onCancel }: Props) {
         setArgon2Time={setArgon2Time}
         argon2Parallelism={argon2Parallelism}
         setArgon2Parallelism={setArgon2Parallelism}
+        cpuCount={cpuCount}
         pbkdf2Iters={pbkdf2Iters}
         setPbkdf2Iters={setPbkdf2Iters}
+        formatPreset={formatPreset}
         setFormatPreset={setFormatPreset}
         formatBlockSize={formatBlockSize}
         setFormatBlockSize={setFormatBlockSize}

@@ -125,7 +125,7 @@ export interface AeadInfo {
 export interface KeySlotInfo {
   index: number;
   is_active: boolean;
-  kdf_algorithm: string; // "argon2id" | "pbkdf2"
+  kdf_algorithm: string; // "argon2id" | "pbkdf2" | "pbkdf2-sha512"
   argon2_memory_mib?: number;
   argon2_time_cost?: number;
   argon2_parallelism?: number;

@@ -43,3 +43,31 @@ winfsp = "0.12"
 
 [dev-dependencies]
 tempfile = "3"
+
+# ---------------------------------------------------------------------------
+# Performance & Optimization Profiles
+# ---------------------------------------------------------------------------
+
+# Maximum release performance for production builds and `tauri dev --release`
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Ensure cryptographic primitives run at level 3 release speed even during regular dev builds!
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.aes]
+opt-level = 3
+[profile.dev.package.aes-gcm]
+opt-level = 3
+[profile.dev.package.xts-mode]
+opt-level = 3
+[profile.dev.package.hmac]
+opt-level = 3

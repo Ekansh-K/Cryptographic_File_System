@@ -126,7 +126,7 @@ export default function KeySlotManagerModal({ open, onClose }: { open: boolean; 
                             <div className="text-text-muted text-xs mt-1">
                               {s.kdf_algorithm.toUpperCase()} 
                               {s.kdf_algorithm === "argon2id" && ` (${s.argon2_memory_mib}MiB, t=${s.argon2_time_cost}, p=${s.argon2_parallelism})`}
-                              {s.kdf_algorithm === "pbkdf2" && ` (${s.pbkdf2_iterations} iters)`}
+                              {(s.kdf_algorithm === "pbkdf2" || s.kdf_algorithm === "pbkdf2-sha512") && ` (${s.pbkdf2_iterations} iters)`}
                             </div>
                           )}
                         </div>

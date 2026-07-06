@@ -32,6 +32,7 @@ pub fn run() {
             commands::list_volume_files,
             commands::list_free_drive_letters,
             commands::get_disk_free_space,
+            commands::get_cpu_count,
             commands::benchmark_kdf,
             commands::benchmark_format_io,
             commands::cancel_benchmark,

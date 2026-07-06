@@ -302,9 +302,16 @@ pub fn create_volume(
 
     // Build KDF params
     let kdf_params = match kdf.as_deref().unwrap_or("argon2id") {
-        "pbkdf2" => KdfParams {
+        "pbkdf2" | "pbkdf2-sha256" | "pbkdf2-hmac-sha256" => KdfParams {
             algorithm: KdfAlgorithm::Pbkdf2HmacSha256,
             pbkdf2_iterations: pbkdf2_iterations.unwrap_or(600_000),
+            argon2_memory_kib: 0,
+            argon2_time_cost: 0,
+            argon2_parallelism: 0,
+        },
+        "pbkdf2-sha512" | "pbkdf2-hmac-sha512" => KdfParams {
+            algorithm: KdfAlgorithm::Pbkdf2HmacSha512,
+            pbkdf2_iterations: pbkdf2_iterations.unwrap_or(300_000),
             argon2_memory_kib: 0,
             argon2_time_cost: 0,
             argon2_parallelism: 0,
@@ -794,6 +801,19 @@ pub fn get_disk_free_space(path: Option<String>) -> Result<u64, String> {
 }
 
 // ---------------------------------------------------------------------------
+// CPU Info
+// ---------------------------------------------------------------------------
+
+/// Return the number of logical CPU threads on this machine.
+/// Used by the UI to auto-set the Argon2id parallelism default and cap.
+#[tauri::command]
+pub fn get_cpu_count() -> u32 {
+    std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(2)
+}
+
+// ---------------------------------------------------------------------------
 // KDF Benchmark
 // ---------------------------------------------------------------------------
 
@@ -807,9 +827,16 @@ pub fn benchmark_kdf(
     argon2_parallelism: Option<u32>,
 ) -> Result<u64, String> {
     let params = match kdf.to_ascii_lowercase().as_str() {
-        "pbkdf2" => KdfParams {
+        "pbkdf2" | "pbkdf2-sha256" | "pbkdf2-hmac-sha256" => KdfParams {
             algorithm: KdfAlgorithm::Pbkdf2HmacSha256,
             pbkdf2_iterations: pbkdf2_iterations.unwrap_or(600_000),
+            argon2_memory_kib: 0,
+            argon2_time_cost: 0,
+            argon2_parallelism: 0,
+        },
+        "pbkdf2-sha512" | "pbkdf2-hmac-sha512" => KdfParams {
+            algorithm: KdfAlgorithm::Pbkdf2HmacSha512,
+            pbkdf2_iterations: pbkdf2_iterations.unwrap_or(300_000),
             argon2_memory_kib: 0,
             argon2_time_cost: 0,
             argon2_parallelism: 0,
@@ -1225,12 +1252,10 @@ pub struct CryptoBenchmarkResult {
 pub fn benchmark_crypto_speed(size_mb: u64) -> Result<CryptoBenchmarkResult, String> {
     use std::time::Instant;
     use cfs_io::crypto::xts::XtsCipher;
-    use cfs_io::crypto::aead::{compute_block_tag, verify_block_tag};
 
     let size_mb = size_mb.clamp(1, 512);
     let eu: usize = 4096;
     let size_bytes = size_mb * 1024 * 1024;
-    let num_blocks = (size_bytes as usize) / eu;
 
     // Build a random 64-byte XTS key and 32-byte tag key
     use rand::RngCore;
@@ -1240,6 +1265,7 @@ pub fn benchmark_crypto_speed(size_mb: u64) -> Result<CryptoBenchmarkResult, Str
     rand::rngs::OsRng.fill_bytes(&mut tag_key);
 
     let cipher = XtsCipher::new(&xts_key, eu as u32);
+    let aead_cipher = cfs_io::crypto::aead::AeadCipher::new(&tag_key);
 
     // Allocate a buffer of random plaintext
     let mut buf = vec![0u8; size_bytes as usize];
@@ -1255,25 +1281,16 @@ pub fn benchmark_crypto_speed(size_mb: u64) -> Result<CryptoBenchmarkResult, Str
     cipher.decrypt_blocks_parallel(0, &mut buf);
     let xts_dec_secs = t1.elapsed().as_secs_f64();
 
-    // --- XTS encrypt + AEAD tag compute ---
+    // --- XTS encrypt + AEAD tag compute (PARALLEL via Rayon) ---
     let t2 = Instant::now();
     cipher.encrypt_blocks_parallel(0, &mut buf);
-    for i in 0..num_blocks {
-        let chunk = &buf[i * eu..(i + 1) * eu];
-        let _ = compute_block_tag(&tag_key, i as u64, chunk);
-    }
+    let tags = aead_cipher.compute_tags_parallel(0, &buf);
     let xts_aead_enc_secs = t2.elapsed().as_secs_f64();
 
-    // --- XTS decrypt + AEAD tag verify ---
-    // Pre-compute tags so verify doesn't fail
-    let tags: Vec<[u8; 16]> = (0..num_blocks)
-        .map(|i| compute_block_tag(&tag_key, i as u64, &buf[i * eu..(i + 1) * eu]))
-        .collect();
+    // --- XTS decrypt + AEAD tag verify (PARALLEL via Rayon) ---
     let t3 = Instant::now();
-    for i in 0..num_blocks {
-        let chunk = &buf[i * eu..(i + 1) * eu];
-        let _ = verify_block_tag(&tag_key, i as u64, chunk, &tags[i]);
-    }
+    aead_cipher.verify_tags_parallel(0, &buf, &tags)
+        .map_err(|e| format!("AEAD verify failed: {e}"))?;
     cipher.decrypt_blocks_parallel(0, &mut buf);
     let xts_aead_dec_secs = t3.elapsed().as_secs_f64();
 
